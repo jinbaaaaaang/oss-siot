@@ -8,7 +8,9 @@ build/
 
 # Python
 .venv/
+venv/
 **/.venv/
+**/venv/
 __pycache__/
 *.py[cod]
 
