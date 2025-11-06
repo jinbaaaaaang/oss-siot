@@ -4,8 +4,8 @@ import CursorStars from '../components/CursorStar.jsx'
 
 function AppLayout() {
     return (
-        <div className="min-h-screen bg-[#FAF5F1] text-slate-900">
-            <CursorStars color="#817CB2" density={1} />
+        <div className="min-h-screen bg-white text-slate-900">
+            <CursorStars color="#79A9E6" density={1} />
             <Outlet />
         </div>
     )
