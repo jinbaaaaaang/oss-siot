@@ -322,12 +322,12 @@ async def generate_poem_from_text(request: PoemRequest):
                         request.acrostic,
                         request.model_type  # 모델 타입 전달
                     ),
-                    timeout=300.0  # 5분 타임아웃 (첫 요청 시 모델 로딩 + 생성 + 번역 시간 포함)
+                    timeout=600.0  # 10분 타임아웃 (SOLAR 모델 첫 요청 시 다운로드 + 로딩 + 생성 시간 포함)
                 )
         print(f"[API] ✓ 시 생성 완료 (길이 {len(poem)}자)", flush=True)
     except asyncio.TimeoutError:
-        print("[API] ❌ 타임아웃(>300s)", flush=True)
-        raise HTTPException(status_code=504, detail="시 생성 시간이 초과되었습니다 (5분). 첫 요청은 모델 로딩으로 더 오래 걸릴 수 있습니다. 잠시 후 다시 시도해 주세요.")
+        print("[API] ❌ 타임아웃(>600s)", flush=True)
+        raise HTTPException(status_code=504, detail="시 생성 시간이 초과되었습니다 (10분). SOLAR 모델 첫 요청은 모델 다운로드 및 로딩으로 5-10분이 걸릴 수 있습니다. 잠시 후 다시 시도해 주세요.")
     except Exception as e:
         error_type = type(e).__name__
         msg = str(e) or "시 생성 중 오류가 발생했습니다."
@@ -337,14 +337,24 @@ async def generate_poem_from_text(request: PoemRequest):
         traceback.print_exc()
         
         # 더 구체적인 에러 메시지 제공
-        if "메모리" in msg or "memory" in msg.lower() or "cuda" in msg.lower():
-            detail_msg = f"GPU 메모리 부족 또는 CUDA 오류입니다. {msg[:200]}"
+        if "메모리" in msg or "memory" in msg.lower() or "cuda" in msg.lower() or "out of memory" in msg.lower():
+            detail_msg = f"GPU 메모리 부족 또는 CUDA 오류입니다. Colab 런타임을 재시작하고 다시 시도해주세요. ({msg[:300]})"
+        elif "모델 로딩" in msg or "model loading" in msg.lower() or "loading" in msg.lower():
+            detail_msg = f"모델 로딩 중 오류가 발생했습니다. 첫 요청은 모델 다운로드로 5-10분이 걸릴 수 있습니다. 잠시 후 다시 시도해주세요. ({msg[:300]})"
         elif "생성하지 않았습니다" in msg or "비어있습니다" in msg:
-            detail_msg = f"모델이 텍스트를 생성하지 못했습니다. {msg[:200]}"
+            detail_msg = f"모델이 텍스트를 생성하지 못했습니다. ({msg[:300]})"
         else:
-            detail_msg = f"시 생성 중 오류가 발생했습니다: {msg[:200]}"
+            detail_msg = f"시 생성 중 오류가 발생했습니다: {msg[:300]}"
         
-        raise HTTPException(status_code=500, detail=detail_msg)
+        # 에러 타입도 포함
+        raise HTTPException(
+            status_code=500, 
+            detail={
+                "error": detail_msg,
+                "error_type": error_type,
+                "message": msg[:500]
+            }
+        )
 
     # 4) 검증(아주 관대)
     poem_clean = (poem or "").strip()

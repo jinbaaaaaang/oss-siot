@@ -134,9 +134,12 @@ function PoemGeneration() {
         setResult(null)
 
         try {
-            // 타임아웃 설정 (백엔드 타임아웃과 맞춤: 300초 = 5분, 첫 요청 시 모델 로딩으로 더 오래 걸릴 수 있음)
+            // 타임아웃 설정 (SOLAR 모델은 첫 요청 시 모델 로딩으로 더 오래 걸릴 수 있음)
+            // SOLAR: 10분 (600초), koGPT2: 5.5분 (330초)
             const controller = new AbortController()
-            const timeoutId = setTimeout(() => controller.abort(), 330000) // 5.5분 (백엔드 300초 + 여유)
+            const timeoutDuration = modelType === 'solar' ? 600000 : 330000
+            const timeoutId = setTimeout(() => controller.abort(), timeoutDuration)
+            console.log(`⏱️ 타임아웃 설정: ${timeoutDuration / 1000}초 (${modelType === 'solar' ? 'SOLAR 모델' : 'koGPT2 모델'})`)
             
             // 옵션 파라미터 구성
             // showOptions가 false이면 프롬프트 옵션을 전송하지 않음
@@ -171,6 +174,27 @@ function PoemGeneration() {
                 if (COLAB_API_URL) {
                     apiUrl = `${COLAB_API_URL}/api/poem/generate`
                     console.log('🌐 Colab API 사용:', apiUrl)
+                    
+                    // 서버 상태 사전 확인 (선택적, 비동기로 실행하여 요청 지연 방지)
+                    const healthUrl = `${COLAB_API_URL}/health`
+                    fetch(healthUrl, {
+                        method: 'GET',
+                        headers: {
+                            'ngrok-skip-browser-warning': 'true'
+                        }
+                    })
+                    .then(async (healthCheck) => {
+                        if (healthCheck.ok) {
+                            const healthData = await healthCheck.json()
+                            console.log('✅ 서버 상태 확인:', healthData)
+                        } else {
+                            console.warn('⚠️ 서버 health check 실패:', healthCheck.status)
+                        }
+                    })
+                    .catch((healthError) => {
+                        console.warn('⚠️ 서버 상태 확인 실패:', healthError.message)
+                        console.warn('💡 Colab 서버가 실행 중인지 확인하세요.')
+                    })
                 } else {
                     console.error('❌ SOLAR 모델을 사용하려면 코랩 URL이 필요합니다!')
                     console.error('💡 .env 파일에 VITE_COLAB_API_URL을 설정하고 프론트엔드를 재시작하세요.')
@@ -222,22 +246,57 @@ function PoemGeneration() {
 
             let data
             try {
-                data = await response.json()
-            } catch (jsonError) {
-                // JSON 파싱 실패 시 텍스트 응답 사용
-                const text = await response.text()
-                setError(`서버 오류: ${response.status} ${response.statusText}${text ? ` - ${text.substring(0, 200)}` : ''}`)
+                const responseText = await response.text()
+                if (responseText) {
+                    try {
+                        data = JSON.parse(responseText)
+                    } catch (parseError) {
+                        // JSON 파싱 실패 시 텍스트를 에러 메시지로 사용
+                        console.error('❌ JSON 파싱 실패:', parseError)
+                        console.error('응답 텍스트:', responseText.substring(0, 500))
+                        setError(`서버 오류 (${response.status}): ${responseText.substring(0, 300)}`)
+                        return
+                    }
+                } else {
+                    data = {}
+                }
+            } catch (textError) {
+                console.error('❌ 응답 읽기 실패:', textError)
+                setError(`서버 응답을 읽을 수 없습니다: ${response.status} ${response.statusText}`)
                 return
             }
 
             if (!response.ok) {
                 // 백엔드에서 반환하는 상세 에러 메시지 표시
-                const errorMessage = data.detail || data.message || `서버 오류: ${response.status} ${response.statusText}`
+                let errorMessage = `서버 오류: ${response.status} ${response.statusText}`
+                
+                if (data) {
+                    // detail이 객체인 경우 (새로운 형식)
+                    if (typeof data.detail === 'object' && data.detail.error) {
+                        errorMessage = data.detail.error
+                        console.error('❌ 서버 오류 상세:', {
+                            error: data.detail.error,
+                            error_type: data.detail.error_type,
+                            message: data.detail.message
+                        })
+                    } else if (typeof data.detail === 'string') {
+                        // detail이 문자열인 경우 (기존 형식)
+                        errorMessage = data.detail
+                    } else if (data.message) {
+                        errorMessage = data.message
+                    }
+                }
+                
                 setError(errorMessage)
                 return
             }
 
             if (data.success) {
+                console.log('✅ 시 생성 성공:', {
+                    poem_length: data.poem?.length || 0,
+                    keywords: data.keywords,
+                    emotion: data.emotion
+                })
                 setResult(data)
                 setSaved(false)
                 
@@ -251,17 +310,42 @@ function PoemGeneration() {
                     console.error('자동 저장 설정 확인 실패:', err)
                 }
             } else {
-                setError(data.message || '시 생성에 실패했습니다.')
+                const errorMsg = data.message || data.detail || '시 생성에 실패했습니다.'
+                console.error('❌ 시 생성 실패:', errorMsg)
+                setError(errorMsg)
             }
         } catch (err) {
+            console.error('❌ 요청 오류:', err)
+            
             if (err.name === 'AbortError') {
-                setError('시 생성 시간이 너무 오래 걸려 중단되었습니다. 첫 요청은 모델 로딩으로 5분 이상 걸릴 수 있습니다. 잠시 후 다시 시도해주세요.')
+                const timeoutMsg = modelType === 'solar' 
+                    ? '시 생성 시간이 너무 오래 걸려 중단되었습니다. SOLAR 모델 첫 요청은 모델 다운로드 및 로딩으로 5-10분이 걸릴 수 있습니다. 잠시 후 다시 시도해주세요.'
+                    : '시 생성 시간이 너무 오래 걸려 중단되었습니다. 첫 요청은 모델 로딩으로 5분 이상 걸릴 수 있습니다. 잠시 후 다시 시도해주세요.'
+                setError(timeoutMsg)
             } else if (err.name === 'TypeError' && err.message.includes('fetch')) {
-                setError('서버에 연결할 수 없습니다. 백엔드 서버가 실행 중인지 확인해주세요.')
+                // 네트워크 오류
+                if (err.message.includes('ERR_SOCKET_NOT_CONNECTED') || err.message.includes('Failed to fetch')) {
+                    let errorMsg = '서버에 연결할 수 없습니다.\n\n'
+                    if (modelType === 'solar' && COLAB_API_URL) {
+                        errorMsg += '🔍 문제 해결 방법:\n'
+                        errorMsg += '1. Colab 노트북에서 서버가 실행 중인지 확인하세요\n'
+                        errorMsg += '2. Colab 런타임이 종료되었을 수 있습니다 (무료 버전은 90분 비활성 시 종료)\n'
+                        errorMsg += '3. Colab에서 서버를 재시작하세요:\n'
+                        errorMsg += '   %cd /content/siot-OSS/backend\n'
+                        errorMsg += '   !python colab_server.py\n'
+                        errorMsg += '4. 새로운 ngrok URL을 .env 파일에 업데이트하세요\n'
+                        errorMsg += `\n현재 설정된 URL: ${COLAB_API_URL}`
+                    } else {
+                        errorMsg += '백엔드 서버가 실행 중인지 확인해주세요.'
+                    }
+                    setError(errorMsg)
+                } else {
+                    setError('서버에 연결할 수 없습니다. 백엔드 서버가 실행 중인지 확인해주세요.')
+                }
             } else {
-                setError(`오류가 발생했습니다: ${err.message || '알 수 없는 오류'}`)
+                const errorMsg = err.message || '알 수 없는 오류'
+                setError(`오류가 발생했습니다: ${errorMsg}`)
             }
-            console.error('Error:', err)
         } finally {
             setLoading(false)
         }
@@ -503,7 +587,11 @@ function PoemGeneration() {
                         disabled={loading || !text.trim()}
                         className="px-6 py-3 bg-transparent border border-gray-800 text-gray-800 rounded-lg font-medium hover:bg-gray-50 hover:border-gray-600 disabled:cursor-not-allowed transition-colors"
                     >
-                        {loading ? '시 생성 중...' : '시 생성하기'}
+                        {loading 
+                            ? (modelType === 'solar' 
+                                ? '시 생성 중... (SOLAR 모델, 첫 요청은 5-10분 소요)' 
+                                : '시 생성 중...')
+                            : '시 생성하기'}
                     </button>
                     
                     {result && (
