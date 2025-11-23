@@ -179,3 +179,28 @@
 .animate-float-fast {
     animation: float-fast 2.5s ease-in-out infinite;
 }
+
+/* 커스텀 스크롤바 스타일 */
+.custom-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: #79A9E6 #f1f1f1;
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 10px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: rgba(241, 241, 241, 0.5);
+  border-radius: 10px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: #79A9E6;
+  border-radius: 10px;
+  border: 2px solid rgba(241, 241, 241, 0.5);
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #5A8FD6;
+}

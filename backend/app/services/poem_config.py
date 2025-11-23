@@ -12,9 +12,15 @@ USE_ML_MODEL: bool = True
 
 # GPU 자동 감지 함수
 def _is_gpu_available() -> bool:
-    """GPU 사용 가능 여부 확인"""
+    """GPU 사용 가능 여부 확인 (CUDA 또는 MPS)"""
     try:
-        return torch.cuda.is_available()
+        # CUDA (NVIDIA GPU)
+        if torch.cuda.is_available():
+            return True
+        # MPS (Apple Silicon GPU)
+        if hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+            return True
+        return False
     except Exception:
         return False
 

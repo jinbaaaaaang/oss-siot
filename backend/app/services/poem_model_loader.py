@@ -26,18 +26,30 @@ _gen_model_solar: Optional[AutoModelForCausalLM] = None
 
 
 def _is_gpu() -> bool:
-    return torch.cuda.is_available()
+    """GPU 사용 가능 여부 확인 (CUDA 또는 MPS)"""
+    try:
+        # CUDA (NVIDIA GPU)
+        if torch.cuda.is_available():
+            return True
+        # MPS (Apple Silicon GPU)
+        if hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+            return True
+        return False
+    except Exception:
+        return False
 
 
 def _device_info() -> str:
     try:
-        if _is_gpu():
+        if torch.cuda.is_available():
             try:
                 name = torch.cuda.get_device_name(0)
                 mem = torch.cuda.get_device_properties(0).total_memory / (1024**3)
-                return f"GPU(name={name}, VRAM≈{mem:.1f}GB)"
+                return f"CUDA GPU(name={name}, VRAM≈{mem:.1f}GB)"
             except Exception as e:
-                return f"GPU(unknown, error={str(e)[:50]})"
+                return f"CUDA GPU(unknown, error={str(e)[:50]})"
+        elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+            return "MPS (Apple Silicon GPU)"
         return "CPU"
     except Exception as e:
         return f"Error: {str(e)[:50]}"
@@ -155,13 +167,23 @@ def _load_poem_model(model_type: Optional[str] = None) -> Tuple[AutoTokenizer, A
         print(f"[_load_poem_model] koGPT2 모델 로딩 (CPU/GPU 모두 가능)")
         t1 = time.time()
         try:
-            device = "cuda" if _is_gpu() else "cpu"
+            # 디바이스 선택 (CUDA > MPS > CPU)
+            if torch.cuda.is_available():
+                device = "cuda"
+                dtype = torch.float16
+            elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+                device = "mps"
+                dtype = torch.float32  # MPS는 float16을 완전히 지원하지 않을 수 있음
+            else:
+                device = "cpu"
+                dtype = torch.float32
+            
             print(f"[_load_poem_model] 디바이스: {device}")
             print("[_load_poem_model] 모델 다운로드 및 로딩 시작...")
             
             model = AutoModelForCausalLM.from_pretrained(
                 model_id,
-                torch_dtype=torch.float32 if device == "cpu" else torch.float16,
+                torch_dtype=dtype,
             )
             model = model.to(device).eval()
             print("[_load_poem_model] ✓ 모델 객체 생성 및 eval 모드 설정 완료")
@@ -184,8 +206,19 @@ def _load_poem_model(model_type: Optional[str] = None) -> Tuple[AutoTokenizer, A
             gpu_name = torch.cuda.get_device_name(0)
             gpu_mem_total = torch.cuda.get_device_properties(0).total_memory / (1024**3)
             gpu_mem_allocated = torch.cuda.memory_allocated(0) / (1024**3)
+            gpu_mem_reserved = torch.cuda.memory_reserved(0) / (1024**3)
+            gpu_mem_free = gpu_mem_total - gpu_mem_reserved
             print(f"[_load_poem_model] ✓ GPU 정보: {gpu_name}")
-            print(f"[_load_poem_model] ✓ GPU 메모리: 총 {gpu_mem_total:.1f}GB, 사용 중 {gpu_mem_allocated:.2f}GB")
+            print(f"[_load_poem_model] ✓ GPU 메모리: 총 {gpu_mem_total:.1f}GB, 사용 중 {gpu_mem_reserved:.2f}GB, 여유 {gpu_mem_free:.2f}GB")
+            
+            # GPU 메모리 정리 (필요한 경우)
+            if gpu_mem_reserved > 0.5:  # 0.5GB 이상 사용 중이면 정리
+                print("[_load_poem_model] 🧹 GPU 메모리 정리 중...")
+                torch.cuda.empty_cache()
+                import gc
+                gc.collect()
+                gpu_mem_reserved_after = torch.cuda.memory_reserved(0) / (1024**3)
+                print(f"[_load_poem_model] ✓ GPU 메모리 정리 완료 (정리 후: {gpu_mem_reserved_after:.2f}GB)")
         except Exception as e:
             print(f"[_load_poem_model] ⚠️ GPU 정보 확인 실패: {e}")
         
@@ -204,12 +237,26 @@ def _load_poem_model(model_type: Optional[str] = None) -> Tuple[AutoTokenizer, A
             print("[_load_poem_model] ⏳ 이 과정은 몇 분이 걸릴 수 있습니다 (모델 크기: ~21GB)")
             print("[_load_poem_model] ⏳ 진행 상황을 기다려주세요...")
             
+            # GPU 메모리 제한 설정 (Colab T4: 15GB, A100: 40GB 등)
+            # 사용 가능한 메모리의 90%만 사용하도록 제한
+            try:
+                gpu_mem_total_gb = torch.cuda.get_device_properties(0).total_memory / (1024**3)
+                # 최소 10GB는 확보하려고 시도 (T4의 경우 약 5GB만 사용)
+                max_memory_gb = max(5.0, gpu_mem_total_gb * 0.9)
+                max_memory = {0: f"{int(max_memory_gb)}GB"}
+                print(f"[_load_poem_model] 💾 GPU 메모리 제한 설정: {max_memory}")
+            except:
+                max_memory = None
+                print("[_load_poem_model] ⚠️ GPU 메모리 제한 설정 실패, 기본값 사용")
+            
             # 모델 로딩 시도
             model = AutoModelForCausalLM.from_pretrained(
                 model_id,
                 quantization_config=bnb_cfg,
                 device_map="auto",
                 low_cpu_mem_usage=True,
+                max_memory=max_memory if max_memory else None,
+                torch_dtype=torch.float16,  # 추가 메모리 최적화
             )
             print("[_load_poem_model] ✓ 모델 객체 생성 완료")
             
@@ -236,14 +283,22 @@ def _load_poem_model(model_type: Optional[str] = None) -> Tuple[AutoTokenizer, A
         except RuntimeError as e:
             error_msg = str(e)
             print(f"[_load_poem_model] ❌ 4bit 로딩 실패 (RuntimeError): {error_msg}")
-            traceback.print_exc()
+            try:
+                import traceback as tb
+                tb.print_exc()
+            except:
+                pass
             if "out of memory" in error_msg.lower() or "CUDA" in error_msg:
                 raise Exception(f"GPU 메모리 부족 또는 CUDA 오류: 모델을 로드할 수 없습니다. 런타임을 재시작하거나 더 큰 GPU를 사용하세요. ({error_msg[:200]})")
             raise Exception(f"모델 로딩 실패: {error_msg[:200]}")
         except Exception as e:
             error_msg = str(e)
             print(f"[_load_poem_model] ❌ 4bit 로딩 실패: {error_msg}")
-            traceback.print_exc()
+            try:
+                import traceback as tb
+                tb.print_exc()
+            except:
+                pass
             raise Exception(f"모델 로딩 중 오류 발생: {error_msg[:200]}")
     else:
         print("[_load_poem_model] ⚠️ GPU 없음 → CPU float32 로드(매우 느림, 권장 X)")

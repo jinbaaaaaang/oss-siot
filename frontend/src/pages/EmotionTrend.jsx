@@ -108,7 +108,74 @@ function EmotionTrend() {
         }
     }
 
-    // 날짜별 감정 분포 데이터 계산
+    // 주 단위로 날짜를 그룹화하는 헬퍼 함수
+    const getWeekStart = (dateStr) => {
+        const date = new Date(dateStr)
+        const day = date.getDay() // 0(일요일) ~ 6(토요일)
+        const diff = day === 0 ? -6 : 1 - day // 월요일을 주의 시작으로
+        const weekStart = new Date(date)
+        weekStart.setDate(date.getDate() + diff)
+        return weekStart.toISOString().split('T')[0] // YYYY-MM-DD
+    }
+
+    // 주 라벨 포맷팅 함수
+    const formatWeekLabel = (weekStartStr) => {
+        const weekStart = new Date(weekStartStr)
+        const weekEnd = new Date(weekStart)
+        weekEnd.setDate(weekStart.getDate() + 6)
+        
+        const startMonth = weekStart.getMonth() + 1
+        const startDay = weekStart.getDate()
+        const endMonth = weekEnd.getMonth() + 1
+        const endDay = weekEnd.getDate()
+        
+        if (startMonth === endMonth) {
+            return `${startMonth}/${startDay}-${endDay}`
+        } else {
+            return `${startMonth}/${startDay}-${endMonth}/${endDay}`
+        }
+    }
+
+    // 주 단위 감정 분포 데이터 계산
+    const weeklyEmotionData = useMemo(() => {
+        if (!poems.length) return []
+
+        // 모든 감정 종류 수집
+        const allEmotions = new Set()
+        poems.forEach(poem => {
+            if (poem.emotion) allEmotions.add(poem.emotion)
+        })
+        
+        // 주 단위로 그룹화
+        const weekMap = {}
+        
+        poems.forEach(poem => {
+            if (!poem.createdAt || !poem.emotion) return
+            
+            const date = new Date(poem.createdAt).toISOString().split('T')[0] // YYYY-MM-DD
+            const weekStart = getWeekStart(date)
+            
+            if (!weekMap[weekStart]) {
+                // 모든 감정을 0으로 초기화
+                weekMap[weekStart] = { 
+                    date: weekStart,
+                    weekLabel: formatWeekLabel(weekStart)
+                }
+                allEmotions.forEach(emotion => {
+                    weekMap[weekStart][emotion] = 0
+                })
+            }
+            
+            if (weekMap[weekStart][poem.emotion] !== undefined) {
+                weekMap[weekStart][poem.emotion]++
+            }
+        })
+
+        // 날짜순으로 정렬
+        return Object.values(weekMap).sort((a, b) => a.date.localeCompare(b.date))
+    }, [poems])
+
+    // 날짜별 감정 분포 데이터 계산 (최근 7일용)
     const dailyEmotionData = useMemo(() => {
         if (!poems.length) return []
 
@@ -431,16 +498,16 @@ function EmotionTrend() {
                     </div>
                 )}
 
-                {/* 전체 기간 감정 추이 (날짜별) */}
-                {dailyEmotionData.length > 0 && (
+                {/* 전체 기간 감정 추이 (주 단위) */}
+                {weeklyEmotionData.length > 0 && (
                     <div className="p-6 bg-transparent border border-gray-600 rounded-lg">
-                        <h3 className="text-lg font-semibold text-gray-800 mb-4">전체 기간 감정 추이</h3>
+                        <h3 className="text-lg font-semibold text-gray-800 mb-4">전체 기간 감정 추이 (주 단위)</h3>
                         <div style={{ width: '100%', height: '400px' }}>
                             <ResponsiveContainer width="100%" height="100%">
-                                <LineChart data={dailyEmotionData}>
+                                <LineChart data={weeklyEmotionData}>
                                 <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
                                 <XAxis 
-                                    dataKey="date" 
+                                    dataKey="weekLabel" 
                                     stroke="#666"
                                     style={{ fontSize: '11px' }}
                                     angle={-45}
@@ -459,8 +526,8 @@ function EmotionTrend() {
                                     }}
                                 />
                                 <Legend />
-                                {dailyEmotionData.length > 0 && Object.keys(dailyEmotionData[0])
-                                    .filter(key => key !== 'date')
+                                {weeklyEmotionData.length > 0 && Object.keys(weeklyEmotionData[0])
+                                    .filter(key => key !== 'date' && key !== 'weekLabel')
                                     .slice(0, 8) // 최대 8개 감정만 표시 (너무 많으면 복잡함)
                                     .map(emotion => (
                                         <Line 

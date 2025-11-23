@@ -4,6 +4,7 @@ import PoemGeneration from './PoemGeneration.jsx'
 import About from './About.jsx'
 import Archive from './Archive.jsx'
 import Settings from './Settings.jsx'
+import EmotionTrend from './EmotionTrend.jsx'
 import Footer from '../components/Footer.jsx'
 import Logo from '../assets/logo.svg'
 import Note1SVG from '../assets/note1.svg'
@@ -59,6 +60,7 @@ function Main() {
         { label: '시옷이란', key: 'about', to: '/app/about' },
         { label: '시 생성', key: 'generation', to: '/app/generation' },
         { label: '시 보관함', key: 'archive', to: '/app/archive' },
+        { label: '감정 추이', key: 'emotion', to: '/app/emotion' },
     ]
     
     // URL에 따라 활성 탭 설정
@@ -67,6 +69,7 @@ function Main() {
         if (path === '/app/about') setActiveNav('시옷이란')
         else if (path === '/app/generation') setActiveNav('시 생성')
         else if (path === '/app/archive') setActiveNav('시 보관함')
+        else if (path === '/app/emotion') setActiveNav('감정 추이')
         else if (path === '/app/settings') setActiveNav('설정')
         else if (path === '/app') setActiveNav('시 생성')
     }, [location.pathname])
@@ -76,6 +79,7 @@ function Main() {
         if (activeNav === '시 생성') return 'generation'
         if (activeNav === '시옷이란') return 'about'
         if (activeNav === '시 보관함') return 'archive'
+        if (activeNav === '감정 추이') return 'emotion'
         if (activeNav === '설정') return 'settings'
         return 'generation' // 기본값
     }
@@ -85,6 +89,7 @@ function Main() {
         'generation': <PoemGeneration key="generation" />,
         'about': <About key="about" />,
         'archive': <Archive key="archive" />,
+        'emotion': <EmotionTrend key="emotion" />,
         'settings': <Settings key="settings" />,
     }
 

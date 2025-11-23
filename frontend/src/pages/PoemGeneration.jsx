@@ -1,7 +1,20 @@
 import React, { useState, useEffect, useRef } from 'react'
 
-const API_URL = 'http://localhost:8000/api/poem/generate'
+// API URL 설정
+// - SOLAR 모델: Colab URL 사용 (VITE_COLAB_API_URL)
+// - koGPT2 모델: 로컬 URL 사용 (VITE_API_URL 또는 localhost)
+const COLAB_API_URL = import.meta.env.VITE_COLAB_API_URL || ''  // Colab ngrok URL
+const LOCAL_API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api/poem/generate'
 const STORAGE_KEY = 'saved_poems'
+const SETTINGS_KEY = 'app_settings'
+
+// 디버깅: 환경 변수 확인
+console.log('🔍 환경 변수 확인:', {
+    VITE_COLAB_API_URL: import.meta.env.VITE_COLAB_API_URL || '(없음)',
+    VITE_API_URL: import.meta.env.VITE_API_URL || '(없음)',
+    COLAB_API_URL: COLAB_API_URL || '(없음)',
+    LOCAL_API_URL
+})
 
 // 커스텀 드롭다운 컴포넌트
 function CustomDropdown({ value, onChange, options, placeholder, disabled }) {
@@ -48,7 +61,7 @@ function CustomDropdown({ value, onChange, options, placeholder, disabled }) {
             </button>
             
             {isOpen && (
-                <div className="absolute z-10 w-full mt-1 border border-gray-600 rounded-lg shadow-lg max-h-48 overflow-y-auto bg-white">
+                <div className="absolute z-10 w-full mt-1 border border-gray-600 rounded-lg shadow-lg max-h-48 overflow-y-auto bg-white/30 backdrop-blur-xl">
                     {options.map((option) => (
                         <button
                             key={option.value}
@@ -59,8 +72,8 @@ function CustomDropdown({ value, onChange, options, placeholder, disabled }) {
                             }}
                             className={`w-full px-3 py-2 text-left text-sm transition-colors ${
                                 value === option.value
-                                    ? 'bg-[#79A9E6] text-white'
-                                    : 'text-gray-800 hover:bg-white'
+                                    ? 'bg-[#79A9E6]/80 text-white'
+                                    : 'text-gray-800 hover:bg-white/20'
                             }`}
                         >
                             {option.label}
@@ -87,6 +100,26 @@ function PoemGeneration() {
     const [useRhyme, setUseRhyme] = useState(false)
     const [showOptions, setShowOptions] = useState(false)
     const [modelType, setModelType] = useState('')  // 'solar' 또는 'kogpt2'
+    const [useTrainedModel, setUseTrainedModel] = useState(false)  // 학습된 모델 사용 여부
+    
+    // 설정 로드 (컴포넌트 마운트 시)
+    useEffect(() => {
+        try {
+            const settings = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}')
+            // 기본 모델 타입 설정
+            if (settings.defaultModelType) {
+                setModelType(settings.defaultModelType)
+                // koGPT2 선택 시 학습된 모델 자동 사용
+                if (settings.defaultModelType === 'kogpt2') {
+                    setUseTrainedModel(true)
+                } else if (settings.defaultModelType === 'solar') {
+                    setUseTrainedModel(false)
+                }
+            }
+        } catch (err) {
+            console.error('설정 로드 실패:', err)
+        }
+    }, [])
 
     const handleSubmit = async (e) => {
         e.preventDefault()
@@ -106,27 +139,83 @@ function PoemGeneration() {
             const timeoutId = setTimeout(() => controller.abort(), 330000) // 5.5분 (백엔드 300초 + 여유)
             
             // 옵션 파라미터 구성
+            // showOptions가 false이면 프롬프트 옵션을 전송하지 않음
             const requestBody = {
                 text: text.trim(),
-                ...(lines && lines !== 4 ? { lines } : {}),
-                ...(mood.trim() ? { mood: mood.trim() } : {}),
-                ...(requiredKeywords.trim() 
+                // 프롬프트 옵션이 열려있을 때만 전송
+                ...(showOptions && lines && lines !== 4 ? { lines } : {}),
+                ...(showOptions && mood.trim() ? { mood: mood.trim() } : {}),
+                ...(showOptions && requiredKeywords.trim() 
                     ? { required_keywords: requiredKeywords.split(',').map(k => k.trim()).filter(k => k) } 
                     : {}),
-                ...(bannedWords.trim() 
+                ...(showOptions && bannedWords.trim() 
                     ? { banned_words: bannedWords.split(',').map(k => k.trim()).filter(k => k) } 
                     : {}),
-                ...(useRhyme ? { use_rhyme: true } : {}),
+                ...(showOptions && useRhyme ? { use_rhyme: true } : {}),
                 ...(modelType ? { model_type: modelType } : {}),
+                ...(useTrainedModel ? { use_trained_model: true } : {}),
             }
             
-            const response = await fetch(API_URL, {
+            // 모델 타입에 따라 API URL 선택
+            // SOLAR 모델: Colab URL 사용 (설정된 경우)
+            // koGPT2 모델: 로컬 URL 사용
+            let apiUrl = LOCAL_API_URL
+            console.log('🔍 디버깅 정보:', {
+                modelType,
+                COLAB_API_URL: COLAB_API_URL || '(없음)',
+                LOCAL_API_URL
+            })
+            
+            // SOLAR 모델 선택 시 코랩 URL 필수
+            if (modelType === 'solar') {
+                if (COLAB_API_URL) {
+                    apiUrl = `${COLAB_API_URL}/api/poem/generate`
+                    console.log('🌐 Colab API 사용:', apiUrl)
+                } else {
+                    console.error('❌ SOLAR 모델을 사용하려면 코랩 URL이 필요합니다!')
+                    console.error('💡 .env 파일에 VITE_COLAB_API_URL을 설정하고 프론트엔드를 재시작하세요.')
+                    setError('SOLAR 모델을 사용하려면 코랩 URL이 필요합니다. .env 파일에 VITE_COLAB_API_URL을 설정하고 프론트엔드를 재시작하세요.')
+                    setLoading(false)
+                    return
+                }
+            } else {
+                // koGPT2 또는 모델 미선택 시 로컬 서버 사용
+                console.log('💻 로컬 API 사용:', apiUrl)
+                if (!modelType) {
+                    console.warn('⚠️ 모델이 선택되지 않았습니다. koGPT2 모델을 사용합니다.')
+                }
+            }
+            
+            // ngrok 무료 버전 경고 페이지 우회를 위한 헤더
+            const headers = {
+                'Content-Type': 'application/json',
+            }
+            
+            // ngrok-free.dev 도메인인 경우 추가 헤더
+            if (apiUrl.includes('ngrok-free.dev')) {
+                headers['ngrok-skip-browser-warning'] = 'true'
+            }
+            
+            console.log('📤 요청 전송:', {
+                url: apiUrl,
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
+                headers: headers,
+                modelType: modelType
+            })
+            
+            const response = await fetch(apiUrl, {
+                method: 'POST',
+                headers: headers,
                 body: JSON.stringify(requestBody),
-                signal: controller.signal
+                signal: controller.signal,
+                mode: 'cors'  // CORS 명시적 설정
+            })
+            
+            console.log('📥 응답 받음:', {
+                status: response.status,
+                statusText: response.statusText,
+                url: response.url,
+                ok: response.ok
             })
             
             clearTimeout(timeoutId)
@@ -151,6 +240,16 @@ function PoemGeneration() {
             if (data.success) {
                 setResult(data)
                 setSaved(false)
+                
+                // 자동 저장 기능 (설정에서 활성화된 경우)
+                try {
+                    const settings = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}')
+                    if (settings.autoSave !== false) {  // 기본값은 true
+                        handleSavePoem(data)
+                    }
+                } catch (err) {
+                    console.error('자동 저장 설정 확인 실패:', err)
+                }
             } else {
                 setError(data.message || '시 생성에 실패했습니다.')
             }
@@ -178,17 +277,21 @@ function PoemGeneration() {
         setRequiredKeywords('')
         setBannedWords('')
         setUseRhyme(false)
+        setModelType('')
+        setUseTrainedModel(false)
     }
 
-    const handleSavePoem = () => {
-        if (!result || !result.poem) return
+    const handleSavePoem = (poemResult = null) => {
+        // poemResult가 없으면 현재 result 사용 (수동 저장)
+        const dataToSave = poemResult || result
+        if (!dataToSave || !dataToSave.poem) return
 
         const poemData = {
             id: Date.now().toString(),
-            poem: result.poem,
-            keywords: result.keywords || [],
-            emotion: result.emotion || '',
-            emotion_confidence: result.emotion_confidence || 0,
+            poem: dataToSave.poem,
+            keywords: dataToSave.keywords || [],
+            emotion: dataToSave.emotion || '',
+            emotion_confidence: dataToSave.emotion_confidence || 0,
             originalText: text.trim(),
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
@@ -238,7 +341,10 @@ function PoemGeneration() {
                     <div className="flex gap-3">
                         <button
                             type="button"
-                            onClick={() => setModelType('solar')}
+                            onClick={() => {
+                                setModelType('solar')
+                                setUseTrainedModel(false)  // SOLAR 선택 시 기본 모델 사용
+                            }}
                             disabled={loading}
                             className={`flex-1 px-4 py-2 rounded-lg font-medium transition-colors ${
                                 modelType === 'solar'
@@ -247,11 +353,16 @@ function PoemGeneration() {
                             } disabled:opacity-50 disabled:cursor-not-allowed`}
                         >
                             SOLAR (GPU)
-                            <div className="text-xs mt-1 opacity-80">고품질, 빠른 생성</div>
+                            <div className="text-xs mt-1 opacity-80">
+                                {COLAB_API_URL ? 'Colab 연동' : '로컬 서버'}
+                            </div>
                         </button>
                         <button
                             type="button"
-                            onClick={() => setModelType('kogpt2')}
+                            onClick={() => {
+                                setModelType('kogpt2')
+                                setUseTrainedModel(true)  // koGPT2 선택 시 학습된 모델 자동 사용
+                            }}
                             disabled={loading}
                             className={`flex-1 px-4 py-2 rounded-lg font-medium transition-colors ${
                                 modelType === 'kogpt2'
@@ -260,13 +371,27 @@ function PoemGeneration() {
                             } disabled:opacity-50 disabled:cursor-not-allowed`}
                         >
                             koGPT2 (CPU)
-                            <div className="text-xs mt-1 opacity-80">CPU 친화적, 빠른 생성</div>
+                            <div className="text-xs mt-1 opacity-80">학습된 모델 사용</div>
                         </button>
                     </div>
                     {!modelType && (
                         <p className="text-xs text-gray-600 mt-2">
                             모델을 선택하지 않으면 자동으로 GPU/CPU를 감지하여 선택됩니다.
                         </p>
+                    )}
+                    
+                    {/* 학습된 모델 사용 상태 표시 */}
+                    {modelType === 'kogpt2' && (
+                        <div className="mt-4 pt-4 border-t border-gray-300">
+                            <div className="flex items-center gap-2">
+                                <span className="text-sm font-medium text-gray-800">
+                                    ✅ 학습된 모델 사용 중
+                                </span>
+                            </div>
+                            <p className="text-xs text-gray-600 mt-1">
+                                Colab에서 학습한 모델로 시를 생성합니다. 산문의 의미를 이해하고 시로 변환합니다.
+                            </p>
+                        </div>
                     )}
                 </div>
 

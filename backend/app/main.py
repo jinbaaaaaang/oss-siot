@@ -45,14 +45,34 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
+
+# OPTIONS 요청 명시적 처리 (CORS preflight)
+@app.options("/{full_path:path}")
+async def options_handler(full_path: str):
+    """CORS preflight 요청 처리"""
+    return {"message": "OK"}
 
 @app.on_event("startup")
 async def startup_event():
     """
     서버 시작 시 모델을 미리 로드합니다.
     첫 요청 시 지연 시간을 줄이기 위해 사전 로딩합니다.
+    코랩 환경에서는 모델 다운로드가 오래 걸릴 수 있으므로 선택적으로 로딩합니다.
     """
+    # 코랩 환경 감지
+    is_colab = os.path.exists("/content")
+    
+    if is_colab:
+        print("\n" + "="*80)
+        print("🌐 코랩 환경 감지: 모델 사전 로딩 건너뜀")
+        print("="*80)
+        print("💡 첫 요청 시 자동으로 모델이 로드됩니다.")
+        print("   (모델 다운로드에 5-10분이 걸릴 수 있습니다)")
+        print("="*80 + "\n")
+        return
+    
     print("\n" + "="*80)
     print("🚀 서버 시작 중: 모델 사전 로딩 시작...")
     print("="*80)

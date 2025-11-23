@@ -142,11 +142,42 @@ def _postprocess_poem(raw: str, min_lines: int, max_lines: int) -> str:
             print(f"[postprocess] 이상한 패턴 제거: {repr(s)}")
             continue
         
+        # 방송사, 미디어 관련 텍스트 제거
+        if re.search(r'\b(SBS|KBS|MBC|JTBC|TVN|Mnet|EBS|YTN|연합뉴스|뉴스|방송|스페셜|특집)\b', s, re.IGNORECASE):
+            print(f"[postprocess] 방송사/미디어 관련 텍스트 제거: {repr(s)}")
+            continue
+        
+        # 등호(=)가 포함된 수식 같은 패턴 제거
+        if '=' in s and not any(ord('가') <= ord(c) <= ord('힣') for c in s):
+            print(f"[postprocess] 수식 패턴 제거: {repr(s)}")
+            continue
+        
+        # 의미 없는 대문자 단어 조합 제거 (예: "Keyp = Freezardience")
+        # 대문자로 시작하는 단어가 2개 이상이고 한글이 없으면 제거
+        uppercase_words = re.findall(r'\b[A-Z][a-z]+\b', s)
+        if len(uppercase_words) >= 2 and not any(ord('가') <= ord(c) <= ord('힣') for c in s):
+            print(f"[postprocess] 의미 없는 대문자 단어 조합 제거: {repr(s)}")
+            continue
+        
+        # 이상한 영어 단어 패턴 (의미 없는 조합) 제거
+        # 영어만 있고 한글이 없으며, 단어가 이상하게 조합된 경우
+        english_only = re.match(r'^[a-zA-Z\s=!\[\]]+$', s)
+        if english_only:
+            # 일반적인 영어 단어가 아닌 이상한 조합인지 확인
+            words = s.split()
+            # 단어가 3개 이상이고 모두 대문자로 시작하거나 이상한 패턴이면 제거
+            if len(words) >= 3 and all(w[0].isupper() if w else False for w in words if w and w[0].isalpha()):
+                print(f"[postprocess] 이상한 영어 단어 조합 제거: {repr(s)}")
+                continue
+        
         # 영어가 너무 많은 줄 제거 (한국어 시가 아니므로)
         english_chars = sum(1 for c in s if c.isalpha() and ord('a') <= ord(c.lower()) <= ord('z'))
         korean_chars = sum(1 for c in s if ord('가') <= ord(c) <= ord('힣'))
-        if english_chars > korean_chars * 2 and korean_chars < 3:
-            print(f"[postprocess] 영어가 너무 많은 줄 제거: {repr(s)}")
+        total_alpha = sum(1 for c in s if c.isalpha())
+        
+        # 영어 비율이 80% 이상이고 한글이 3자 미만이면 제거
+        if total_alpha > 0 and (english_chars / total_alpha) > 0.8 and korean_chars < 3:
+            print(f"[postprocess] 영어가 너무 많은 줄 제거 (영어: {english_chars}, 한글: {korean_chars}): {repr(s)}")
             continue
             
         # 너무 짧은 줄은 제외 (1-2자)

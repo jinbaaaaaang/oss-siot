@@ -136,7 +136,7 @@ function Archive() {
             {/* 상세보기/수정 모달 */}
             {selectedPoem && (
                 <div className="fixed inset-0 bg-white/20 backdrop-blur-md flex items-center justify-center z-50 p-4">
-                    <div className="bg-white/30 backdrop-blur-xl border border-gray-600 rounded-lg max-w-3xl w-full max-h-[90vh] overflow-y-auto p-6">
+                    <div className="bg-white/30 backdrop-blur-xl border border-gray-600 rounded-lg max-w-3xl w-full max-h-[90vh] overflow-y-auto p-6 custom-scrollbar">
                         <div className="flex items-center justify-between mb-4">
                             <h3 className="text-xl font-semibold text-gray-800">시 상세보기</h3>
                             <button
