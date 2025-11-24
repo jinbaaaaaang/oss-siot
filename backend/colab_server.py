@@ -28,18 +28,6 @@ SERVER_PORT = 8000
 import os
 os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'
 
-# GPU 메모리 정리 (이전 세션 정리)
-try:
-    import torch
-    if torch.cuda.is_available():
-        print("🧹 GPU 메모리 정리 중...")
-        torch.cuda.empty_cache()
-        import gc
-        gc.collect()
-        print("✅ GPU 메모리 정리 완료")
-except:
-    pass
-
 # ===== 패키지 설치 =====
 print("📦 필요한 패키지 설치 중...")
 packages = [

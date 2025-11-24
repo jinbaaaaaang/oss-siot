@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react'
 
-// API URL 설정
+// API URL 설정 (.env 파일에서 읽기)
 // - SOLAR 모델: Colab URL 사용 (VITE_COLAB_API_URL)
 // - koGPT2 모델: 로컬 URL 사용 (VITE_API_URL 또는 localhost)
 const COLAB_API_URL = import.meta.env.VITE_COLAB_API_URL || ''  // Colab ngrok URL
@@ -8,13 +8,54 @@ const LOCAL_API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api
 const STORAGE_KEY = 'saved_poems'
 const SETTINGS_KEY = 'app_settings'
 
-// 디버깅: 환경 변수 확인
-console.log('🔍 환경 변수 확인:', {
-    VITE_COLAB_API_URL: import.meta.env.VITE_COLAB_API_URL || '(없음)',
-    VITE_API_URL: import.meta.env.VITE_API_URL || '(없음)',
-    COLAB_API_URL: COLAB_API_URL || '(없음)',
-    LOCAL_API_URL
-})
+// 환경 변수 디버깅 (개발 모드에서만)
+if (import.meta.env.DEV) {
+    console.log('🔍 환경 변수 확인:', {
+        VITE_COLAB_API_URL: import.meta.env.VITE_COLAB_API_URL || '(없음)',
+        VITE_API_URL: import.meta.env.VITE_API_URL || '(없음)',
+        COLAB_API_URL: COLAB_API_URL || '(없음)',
+        LOCAL_API_URL
+    })
+}
+
+// API 호출 함수
+const callPoemAPI = async (apiBaseUrl, endpoint, requestBody, signal) => {
+    const apiUrl = `${apiBaseUrl}${endpoint}`
+    
+    // 헤더 설정
+    const headers = {
+        'Content-Type': 'application/json',
+    }
+    
+    // ngrok 무료 버전 경고 페이지 우회
+    if (apiBaseUrl.includes('ngrok-free.dev')) {
+        headers['ngrok-skip-browser-warning'] = 'true'
+    }
+    
+    console.log('📤 API 요청:', {
+        url: apiUrl,
+        method: 'POST',
+        headers,
+        body: requestBody
+    })
+    
+    const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: headers,
+        body: JSON.stringify(requestBody),
+        signal: signal,
+        mode: 'cors'  // CORS 명시적 설정
+    })
+    
+    console.log('📥 API 응답:', {
+        status: response.status,
+        statusText: response.statusText,
+        url: response.url,
+        ok: response.ok
+    })
+    
+    return response
+}
 
 // 커스텀 드롭다운 컴포넌트
 function CustomDropdown({ value, onChange, options, placeholder, disabled }) {
@@ -134,12 +175,9 @@ function PoemGeneration() {
         setResult(null)
 
         try {
-            // 타임아웃 설정 (SOLAR 모델은 첫 요청 시 모델 로딩으로 더 오래 걸릴 수 있음)
-            // SOLAR: 10분 (600초), koGPT2: 5.5분 (330초)
+            // 타임아웃 설정 (백엔드 타임아웃과 맞춤: 300초 = 5분, 첫 요청 시 모델 로딩으로 더 오래 걸릴 수 있음)
             const controller = new AbortController()
-            const timeoutDuration = modelType === 'solar' ? 600000 : 330000
-            const timeoutId = setTimeout(() => controller.abort(), timeoutDuration)
-            console.log(`⏱️ 타임아웃 설정: ${timeoutDuration / 1000}초 (${modelType === 'solar' ? 'SOLAR 모델' : 'koGPT2 모델'})`)
+            const timeoutId = setTimeout(() => controller.abort(), 330000) // 5.5분 (백엔드 300초 + 여유)
             
             // 옵션 파라미터 구성
             // showOptions가 false이면 프롬프트 옵션을 전송하지 않음
@@ -159,144 +197,68 @@ function PoemGeneration() {
                 ...(useTrainedModel ? { use_trained_model: true } : {}),
             }
             
-            // 모델 타입에 따라 API URL 선택
-            // SOLAR 모델: Colab URL 사용 (설정된 경우)
-            // koGPT2 모델: 로컬 URL 사용
-            let apiUrl = LOCAL_API_URL
-            console.log('🔍 디버깅 정보:', {
-                modelType,
-                COLAB_API_URL: COLAB_API_URL || '(없음)',
-                LOCAL_API_URL
-            })
+            // 모델 타입에 따라 API Base URL 선택
+            // SOLAR 모델 선택 시에만 Colab API 사용
+            let apiBaseUrl = ''
+            const endpoint = '/api/poem/generate'
             
-            // SOLAR 모델 선택 시 코랩 URL 필수
             if (modelType === 'solar') {
-                if (COLAB_API_URL) {
-                    apiUrl = `${COLAB_API_URL}/api/poem/generate`
-                    console.log('🌐 Colab API 사용:', apiUrl)
-                    
-                    // 서버 상태 사전 확인 (선택적, 비동기로 실행하여 요청 지연 방지)
-                    const healthUrl = `${COLAB_API_URL}/health`
-                    fetch(healthUrl, {
-                        method: 'GET',
-                        headers: {
-                            'ngrok-skip-browser-warning': 'true'
-                        }
-                    })
-                    .then(async (healthCheck) => {
-                        if (healthCheck.ok) {
-                            const healthData = await healthCheck.json()
-                            console.log('✅ 서버 상태 확인:', healthData)
-                        } else {
-                            console.warn('⚠️ 서버 health check 실패:', healthCheck.status)
-                        }
-                    })
-                    .catch((healthError) => {
-                        console.warn('⚠️ 서버 상태 확인 실패:', healthError.message)
-                        console.warn('💡 Colab 서버가 실행 중인지 확인하세요.')
-                    })
-                } else {
+                // SOLAR 모델: Colab API 사용
+                if (!COLAB_API_URL) {
                     console.error('❌ SOLAR 모델을 사용하려면 코랩 URL이 필요합니다!')
-                    console.error('💡 .env 파일에 VITE_COLAB_API_URL을 설정하고 프론트엔드를 재시작하세요.')
+                    console.warn('💡 .env 파일에 VITE_COLAB_API_URL을 설정하고 프론트엔드를 재시작하세요.')
                     setError('SOLAR 모델을 사용하려면 코랩 URL이 필요합니다. .env 파일에 VITE_COLAB_API_URL을 설정하고 프론트엔드를 재시작하세요.')
                     setLoading(false)
                     return
                 }
+                
+                apiBaseUrl = COLAB_API_URL
+                console.log('🌐 SOLAR 모델 선택됨 → Colab API 호출:', apiBaseUrl)
+                console.log('📡 Colab 서버에서 시 생성 중...')
             } else {
-                // koGPT2 또는 모델 미선택 시 로컬 서버 사용
-                console.log('💻 로컬 API 사용:', apiUrl)
-                if (!modelType) {
-                    console.warn('⚠️ 모델이 선택되지 않았습니다. koGPT2 모델을 사용합니다.')
+                // koGPT2 모델 또는 모델 미선택: 로컬 서버 사용
+                apiBaseUrl = LOCAL_API_URL.replace('/api/poem/generate', '')  // base URL만 추출
+                if (!apiBaseUrl) {
+                    apiBaseUrl = 'http://localhost:8000'
                 }
+                console.log('💻 로컬 API 사용 (koGPT2):', apiBaseUrl)
             }
             
-            // ngrok 무료 버전 경고 페이지 우회를 위한 헤더
-            const headers = {
-                'Content-Type': 'application/json',
-            }
-            
-            // ngrok-free.dev 도메인인 경우 추가 헤더
-            if (apiUrl.includes('ngrok-free.dev')) {
-                headers['ngrok-skip-browser-warning'] = 'true'
-            }
-            
-            console.log('📤 요청 전송:', {
-                url: apiUrl,
-                method: 'POST',
-                headers: headers,
-                modelType: modelType
-            })
-            
-            const response = await fetch(apiUrl, {
-                method: 'POST',
-                headers: headers,
-                body: JSON.stringify(requestBody),
-                signal: controller.signal,
-                mode: 'cors'  // CORS 명시적 설정
-            })
-            
-            console.log('📥 응답 받음:', {
-                status: response.status,
-                statusText: response.statusText,
-                url: response.url,
-                ok: response.ok
-            })
+            // API 호출 (SOLAR 모델이면 Colab, 아니면 로컬)
+            console.log('🚀 API 요청 시작:', { modelType, apiBaseUrl, endpoint })
+            const response = await callPoemAPI(apiBaseUrl, endpoint, requestBody, controller.signal)
             
             clearTimeout(timeoutId)
 
             let data
             try {
-                const responseText = await response.text()
-                if (responseText) {
-                    try {
-                        data = JSON.parse(responseText)
-                    } catch (parseError) {
-                        // JSON 파싱 실패 시 텍스트를 에러 메시지로 사용
-                        console.error('❌ JSON 파싱 실패:', parseError)
-                        console.error('응답 텍스트:', responseText.substring(0, 500))
-                        setError(`서버 오류 (${response.status}): ${responseText.substring(0, 300)}`)
-                        return
-                    }
-                } else {
-                    data = {}
-                }
-            } catch (textError) {
-                console.error('❌ 응답 읽기 실패:', textError)
-                setError(`서버 응답을 읽을 수 없습니다: ${response.status} ${response.statusText}`)
+                data = await response.json()
+            } catch (jsonError) {
+                // JSON 파싱 실패 시 텍스트 응답 사용
+                const text = await response.text()
+                setError(`서버 오류: ${response.status} ${response.statusText}${text ? ` - ${text.substring(0, 200)}` : ''}`)
                 return
             }
 
             if (!response.ok) {
                 // 백엔드에서 반환하는 상세 에러 메시지 표시
-                let errorMessage = `서버 오류: ${response.status} ${response.statusText}`
-                
-                if (data) {
-                    // detail이 객체인 경우 (새로운 형식)
-                    if (typeof data.detail === 'object' && data.detail.error) {
-                        errorMessage = data.detail.error
-                        console.error('❌ 서버 오류 상세:', {
-                            error: data.detail.error,
-                            error_type: data.detail.error_type,
-                            message: data.detail.message
-                        })
-                    } else if (typeof data.detail === 'string') {
-                        // detail이 문자열인 경우 (기존 형식)
-                        errorMessage = data.detail
-                    } else if (data.message) {
-                        errorMessage = data.message
-                    }
-                }
-                
+                const errorMessage = data.detail || data.message || `서버 오류: ${response.status} ${response.statusText}`
                 setError(errorMessage)
                 return
             }
 
             if (data.success) {
-                console.log('✅ 시 생성 성공:', {
+                console.log('✅ 시 생성 성공!', {
+                    modelType: modelType === 'solar' ? 'SOLAR (Colab)' : 'koGPT2 (로컬)',
                     poem_length: data.poem?.length || 0,
                     keywords: data.keywords,
                     emotion: data.emotion
                 })
+                
+                if (modelType === 'solar') {
+                    console.log('🎉 Colab에서 생성된 시를 프론트엔드로 받아왔습니다!')
+                }
+                
                 setResult(data)
                 setSaved(false)
                 
@@ -310,41 +272,40 @@ function PoemGeneration() {
                     console.error('자동 저장 설정 확인 실패:', err)
                 }
             } else {
-                const errorMsg = data.message || data.detail || '시 생성에 실패했습니다.'
-                console.error('❌ 시 생성 실패:', errorMsg)
-                setError(errorMsg)
+                setError(data.message || '시 생성에 실패했습니다.')
             }
         } catch (err) {
-            console.error('❌ 요청 오류:', err)
+            console.error('❌ API 호출 오류:', err)
             
             if (err.name === 'AbortError') {
-                const timeoutMsg = modelType === 'solar' 
-                    ? '시 생성 시간이 너무 오래 걸려 중단되었습니다. SOLAR 모델 첫 요청은 모델 다운로드 및 로딩으로 5-10분이 걸릴 수 있습니다. 잠시 후 다시 시도해주세요.'
-                    : '시 생성 시간이 너무 오래 걸려 중단되었습니다. 첫 요청은 모델 로딩으로 5분 이상 걸릴 수 있습니다. 잠시 후 다시 시도해주세요.'
-                setError(timeoutMsg)
+                setError('시 생성 시간이 너무 오래 걸려 중단되었습니다. 첫 요청은 모델 로딩으로 5분 이상 걸릴 수 있습니다. 잠시 후 다시 시도해주세요.')
             } else if (err.name === 'TypeError' && err.message.includes('fetch')) {
-                // 네트워크 오류
-                if (err.message.includes('ERR_SOCKET_NOT_CONNECTED') || err.message.includes('Failed to fetch')) {
-                    let errorMsg = '서버에 연결할 수 없습니다.\n\n'
-                    if (modelType === 'solar' && COLAB_API_URL) {
-                        errorMsg += '🔍 문제 해결 방법:\n'
-                        errorMsg += '1. Colab 노트북에서 서버가 실행 중인지 확인하세요\n'
-                        errorMsg += '2. Colab 런타임이 종료되었을 수 있습니다 (무료 버전은 90분 비활성 시 종료)\n'
-                        errorMsg += '3. Colab에서 서버를 재시작하세요:\n'
-                        errorMsg += '   %cd /content/siot-OSS/backend\n'
-                        errorMsg += '   !python colab_server.py\n'
-                        errorMsg += '4. 새로운 ngrok URL을 .env 파일에 업데이트하세요\n'
-                        errorMsg += `\n현재 설정된 URL: ${COLAB_API_URL}`
-                    } else {
-                        errorMsg += '백엔드 서버가 실행 중인지 확인해주세요.'
-                    }
-                    setError(errorMsg)
+                let errorMsg = '서버에 연결할 수 없습니다.\n\n'
+                
+                if (modelType === 'solar' && COLAB_API_URL) {
+                    errorMsg += '🔍 문제 해결 방법:\n\n'
+                    errorMsg += '1️⃣ Colab 서버 상태 확인:\n'
+                    errorMsg += `   - URL: ${COLAB_API_URL}\n`
+                    errorMsg += '   - Colab 노트북에서 서버가 실행 중인지 확인\n\n'
+                    errorMsg += '2️⃣ Colab에서 서버 재시작:\n'
+                    errorMsg += '   %cd /content/siot-OSS/backend\n'
+                    errorMsg += '   !python colab_server.py\n\n'
+                    errorMsg += '3️⃣ 새로운 ngrok URL 확인:\n'
+                    errorMsg += '   서버 실행 후 출력된 "공개 URL" 복사\n\n'
+                    errorMsg += '4️⃣ .env 파일 업데이트:\n'
+                    errorMsg += '   VITE_COLAB_API_URL=https://새로운-ngrok-url.ngrok-free.dev\n\n'
+                    errorMsg += '5️⃣ 프론트엔드 재시작:\n'
+                    errorMsg += '   npm run dev\n'
+                } else if (modelType !== 'solar') {
+                    errorMsg += '로컬 백엔드 서버가 실행 중인지 확인해주세요.\n'
+                    errorMsg += '서버 실행: cd backend && python -m uvicorn app.main:app --reload'
                 } else {
-                    setError('서버에 연결할 수 없습니다. 백엔드 서버가 실행 중인지 확인해주세요.')
+                    errorMsg += '백엔드 서버가 실행 중인지 확인해주세요.'
                 }
+                
+                setError(errorMsg)
             } else {
-                const errorMsg = err.message || '알 수 없는 오류'
-                setError(`오류가 발생했습니다: ${errorMsg}`)
+                setError(`오류가 발생했습니다: ${err.message || '알 수 없는 오류'}`)
             }
         } finally {
             setLoading(false)
@@ -587,11 +548,7 @@ function PoemGeneration() {
                         disabled={loading || !text.trim()}
                         className="px-6 py-3 bg-transparent border border-gray-800 text-gray-800 rounded-lg font-medium hover:bg-gray-50 hover:border-gray-600 disabled:cursor-not-allowed transition-colors"
                     >
-                        {loading 
-                            ? (modelType === 'solar' 
-                                ? '시 생성 중... (SOLAR 모델, 첫 요청은 5-10분 소요)' 
-                                : '시 생성 중...')
-                            : '시 생성하기'}
+                        {loading ? '시 생성 중...' : '시 생성하기'}
                     </button>
                     
                     {result && (
