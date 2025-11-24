@@ -258,25 +258,31 @@ else:
         
         try:
             from pyngrok import ngrok
-            tunnel = ngrok.connect(SERVER_PORT)
+            
+            if NGROK_TOKEN:
+                ngrok.set_auth_token(NGROK_TOKEN)
+            
+            tunnel = ngrok.connect(SERVER_PORT, bind_tls=True)
             # NgrokTunnel 객체에서 URL 추출
             if hasattr(tunnel, 'public_url'):
-                public_url = tunnel.public_url
+                resolved_public_url = tunnel.public_url
             elif hasattr(tunnel, 'url'):
-                public_url = tunnel.url
+                resolved_public_url = tunnel.url
             else:
-                public_url = str(tunnel).replace('NgrokTunnel: "', '').split('"')[0]
+                resolved_public_url = str(tunnel).replace('NgrokTunnel: "', '').split('"')[0]
             
-            print(f"\n✅ 터널 생성 완료!")
-            print(f"\n📝 공개 URL: {public_url}")
-            print(f"\n💡 프론트엔드 설정:")
-            print(f"   .env 파일에 다음을 추가하세요:")
-            print(f"   VITE_COLAB_API_URL={public_url}")
-            print(f"\n   (프론트엔드 코드에서 자동으로 /api/poem/generate를 추가합니다)")
-            print(f"\n⚠️ 주의:")
-            print(f"   - Colab 세션이 종료되면 URL이 변경됩니다")
-            print(f"   - 무료 ngrok은 세션당 2시간 제한이 있습니다")
-            print(f"   - URL은 이 셀을 다시 실행하면 변경됩니다")
+            print("\n✅ 터널 생성 완료!")
+            print("\n🔗 ngrok public URL:", resolved_public_url)
+            example_endpoint = f"{resolved_public_url}/api/poem/generate"
+            print("   예:", example_endpoint)
+            print("\n💡 프론트엔드 설정:")
+            print("   .env 파일에 다음을 추가하세요:")
+            print(f"   VITE_COLAB_API_URL={resolved_public_url}")
+            print("\n   (프론트엔드 코드에서 자동으로 /api/poem/generate를 추가합니다)")
+            print("\n⚠️ 주의:")
+            print("   - Colab 세션이 종료되면 URL이 변경됩니다")
+            print("   - 무료 ngrok은 세션당 2시간 제한이 있습니다")
+            print("   - URL은 이 셀을 다시 실행하면 변경됩니다")
         except Exception as e:
             print(f"❌ ngrok 터널 생성 실패: {e}")
             print(f"\n💡 대안:")
