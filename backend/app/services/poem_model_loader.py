@@ -198,9 +198,8 @@ def _load_poem_model(model_type: Optional[str] = None) -> Tuple[AutoTokenizer, A
             print(f"[_load_poem_model] ❌ koGPT2 모델 로딩 실패: {e}")
             traceback.print_exc()
             raise Exception(f"koGPT2 모델 로딩 실패: {str(e)[:200]}")
-    elif _is_gpu() and torch.cuda.is_available():
-        # CUDA GPU가 있는 경우에만 SOLAR 모델 사용 (Colab 등)
-        print("[_load_poem_model] CUDA GPU 감지됨 → 4bit NF4 양자화 + device_map=auto")
+    elif _is_gpu():
+        print("[_load_poem_model] GPU 감지됨 → 4bit NF4 양자화 + device_map=auto")
         try:
             # GPU 메모리 상태 확인 (로딩 전)
             print("[_load_poem_model] GPU 정보 확인 중...")
@@ -211,24 +210,14 @@ def _load_poem_model(model_type: Optional[str] = None) -> Tuple[AutoTokenizer, A
             print(f"[_load_poem_model] ✓ GPU 메모리: 총 {gpu_mem_total:.1f}GB, 사용 중 {gpu_mem_allocated:.2f}GB")
         except Exception as e:
             print(f"[_load_poem_model] ⚠️ GPU 정보 확인 실패: {e}")
-            # CUDA가 없으면 koGPT2로 폴백
-            print("[_load_poem_model] ⚠️ CUDA를 사용할 수 없습니다. koGPT2 모델로 전환합니다.")
-            target_model_type = "kogpt2"
-            # koGPT2 로딩 로직으로 이동하기 위해 재귀 호출
-            return _load_poem_model("kogpt2")
         
         print("[_load_poem_model] BitsAndBytesConfig 설정 중...")
-        try:
-            bnb_cfg = BitsAndBytesConfig(
-                load_in_4bit=True,
-                bnb_4bit_use_double_quant=True,
-                bnb_4bit_quant_type="nf4",
-                bnb_4bit_compute_dtype=torch.float16,
-            )
-        except Exception as e:
-            print(f"[_load_poem_model] ⚠️ BitsAndBytesConfig 설정 실패: {e}")
-            print("[_load_poem_model] ⚠️ bitsandbytes를 사용할 수 없습니다. koGPT2 모델로 전환합니다.")
-            return _load_poem_model("kogpt2")
+        bnb_cfg = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_use_double_quant=True,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_compute_dtype=torch.float16,
+        )
         print("[_load_poem_model] ✓ BitsAndBytesConfig 설정 완료")
         
         t1 = time.time()

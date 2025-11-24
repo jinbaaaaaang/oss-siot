@@ -1,5 +1,4 @@
 # -*- coding: utf-8 -*-
-from fastapi.middleware.cors import CORSMiddleware
 from typing import List, Optional, Dict
 import time
 import asyncio
@@ -37,47 +36,23 @@ except ImportError:
     HAS_TRAINED_MODEL = False
     print("⚠️ 학습된 모델 모듈을 로드할 수 없습니다.")
 
-app = FastAPI(
-    title="Poem Generation API",
-    description="SOLAR 모델을 사용한 시 생성 API (Colab GPU 지원)",
-    version="1.0.0"
-)
+app = FastAPI(title="Poem API (SOLAR Instruct, Colab GPU)")
 
-# CORS 설정
-origins = [
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
-    # ngrok 도메인은 동적으로 변경되므로 모든 origin 허용 (개발 환경)
-    # 프로덕션에서는 특정 도메인만 허용하도록 수정 필요
-    "*",  # ngrok 사용 시 모든 origin 허용
-    # 필요하면 프론트 배포 주소도 나중에 여기 추가
-    # "https://my-frontend-domain.com",
-]
-
+# 터널/프론트 개발 환경 다양성을 위해 CORS는 와일드카드 허용
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins if "*" not in origins else ["*"],  # "*"가 있으면 모든 origin 허용
+    allow_origins=["*"],           # 필요 시 특정 도메인으로 좁히세요
     allow_credentials=True,
-    allow_methods=["*"],          # 모든 HTTP 메서드 허용 (GET, POST 등)
-    allow_headers=["*"],          # 모든 헤더 허용
+    allow_methods=["*"],
+    allow_headers=["*"],
     expose_headers=["*"],
-    max_age=3600,  # preflight 캐시 시간
 )
 
 # OPTIONS 요청 명시적 처리 (CORS preflight)
 @app.options("/{full_path:path}")
 async def options_handler(full_path: str):
     """CORS preflight 요청 처리"""
-    from fastapi.responses import Response
-    return Response(
-        status_code=200,
-        headers={
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS, HEAD, PATCH",
-            "Access-Control-Allow-Headers": "*",
-            "Access-Control-Max-Age": "3600",
-        }
-    )
+    return {"message": "OK"}
 
 @app.on_event("startup")
 async def startup_event():
@@ -162,12 +137,6 @@ def root():
         "docs": "/docs"
     }
 
-@app.get("/favicon.ico")
-def favicon():
-    """favicon 요청 처리 (404 방지)"""
-    from fastapi.responses import Response
-    return Response(status_code=204)  # No Content
-
 @app.get("/health")
 def health():
     from app.services.poem_config import MODEL_TYPE, GEN_MODEL_ID
@@ -190,8 +159,6 @@ def health():
 
 @app.post("/api/poem/generate", response_model=PoemResponse)
 async def generate_poem_from_text(request: PoemRequest):
-    # CORS 헤더 명시적 추가 (ngrok 브라우저 경고 페이지 우회 시 필요)
-    from fastapi.responses import JSONResponse
     """
     사용자의 일상글을 받아 키워드, 감정을 추출하고 시를 생성합니다.
     - 키워드: TF-IDF
@@ -329,16 +296,7 @@ async def generate_poem_from_text(request: PoemRequest):
                     if has_prompt_options and request.use_gemini_improvement is not False:
                         try:
                             print(f"[API] 프롬프트 옵션 적용됨 → Gemini로 시 개선 시작", flush=True)
-                            improved_poem = improve_poem_with_gemini(
-                                raw_poem, 
-                                text,
-                                lines=request.lines,
-                                mood=request.mood,
-                                required_keywords=request.required_keywords,
-                                banned_words=request.banned_words,
-                                use_rhyme=request.use_rhyme,
-                                acrostic=request.acrostic
-                            )
+                            improved_poem = improve_poem_with_gemini(raw_poem, text)
                             if improved_poem and improved_poem != raw_poem:
                                 print(f"[API] ✓ Gemini 개선 완료: 원본 {len(raw_poem)}자 → 개선 {len(improved_poem)}자", flush=True)
                                 return improved_poem
@@ -426,23 +384,13 @@ async def generate_poem_from_text(request: PoemRequest):
         message="시가 성공적으로 생성되었습니다.",
     )
 
-def improve_poem_with_gemini(
-    raw_poem: str, 
-    original_prose: str = "",
-    lines: Optional[int] = None,
-    mood: Optional[str] = None,
-    required_keywords: Optional[List[str]] = None,
-    banned_words: Optional[List[str]] = None,
-    use_rhyme: Optional[bool] = False,
-    acrostic: Optional[str] = None
-) -> str:
+def improve_poem_with_gemini(raw_poem: str, original_prose: str = "") -> str:
     """
     Gemini API를 사용하여 koGPT2로 생성한 시를 개선합니다.
     - 불필요한 텍스트 제거 (뉴스 스타일 문장 등)
     - 산문 필터링
     - 줄바꿈 개선
     - 시적 표현 개선
-    - 프롬프트 옵션 적용 (줄 수, 분위기, 필수 키워드, 금칙어 등)
     """
     try:
         import google.generativeai as genai
@@ -499,39 +447,6 @@ def improve_poem_with_gemini(
             traceback.print_exc()
             return raw_poem
         
-        # 프롬프트 옵션 구성
-        option_parts = []
-        
-        if lines is not None and lines != 4:
-            option_parts.append(f"- 정확히 {lines}줄로 작성해주세요.")
-        
-        if mood and mood.strip():
-            option_parts.append(f"- 분위기: {mood.strip()} (이 분위기를 시에 반영해주세요)")
-        
-        if required_keywords and len(required_keywords) > 0:
-            kw_str = ", ".join(required_keywords)
-            option_parts.append(f"- 필수 키워드: {kw_str} (반드시 이 키워드들을 시에 포함해주세요)")
-        
-        if banned_words and len(banned_words) > 0:
-            banned_str = ", ".join(banned_words)
-            option_parts.append(f"- 금지 단어: {banned_str} (절대 사용하지 마세요)")
-        
-        if use_rhyme:
-            option_parts.append("- 운율을 사용해주세요 (비슷한 발음이나 반복되는 소리로 리듬감을 주세요)")
-        
-        if acrostic and acrostic.strip():
-            acrostic_chars = " ".join(list(acrostic.strip()))
-            option_parts.append(f"- 두문자 시: 각 줄의 첫 글자가 '{acrostic_chars}' 순서대로 오도록 해주세요 (총 {len(acrostic.strip())}줄)")
-        
-        options_text = "\n".join(option_parts) if option_parts else ""
-        
-        if options_text:
-            print(f"[Gemini] 프롬프트 옵션 적용: {len(option_parts)}개 옵션", flush=True)
-            for i, opt in enumerate(option_parts, 1):
-                print(f"[Gemini]   {i}. {opt}", flush=True)
-        else:
-            print("[Gemini] 프롬프트 옵션 없음 (기본 개선만 수행)", flush=True)
-        
         # 프롬프트 생성 (불필요한 텍스트 제거 및 시적 표현 개선)
         prompt = f"""다음은 AI가 생성한 한국어 시입니다. 이 시를 개선해주세요.
 
@@ -546,7 +461,6 @@ def improve_poem_with_gemini(
 2. "시:", "산문:" 같은 프롬프트 패턴 제거
 3. 적절한 줄바꿈 유지 (문장 끝과 쉼표 뒤)
 4. 시적 표현 개선 (자연스럽고 아름다운 표현으로 다듬기)
-{f"5. 다음 요구사항을 반드시 지켜주세요:\n{options_text}" if options_text else ""}
 
 중요: 시의 주제와 핵심 의미는 유지하되, 표현을 더 시답게 개선해주세요.
 
