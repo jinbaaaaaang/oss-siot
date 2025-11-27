@@ -6,12 +6,11 @@
 - 프롬프트 구성: app.services.poem_prompt_builder
 - 모델/토크나이저 로딩: app.services.poem_model_loader
 - 후처리(줄 정리 등): app.services.poem_text_processor
-- 번역: app.services.translator (비한국어 시 → 한국어로 자동 번역)
 """
 
 import time
 import traceback
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 
 import torch
 
@@ -33,10 +32,6 @@ from app.services.poem_prompt_builder import (
 )
 from app.services.poem_text_processor import (
     _postprocess_poem,
-)
-from app.services.translator import (
-    translate_poem_with_retry,
-    detect_language,
 )
 
 # =====================================================================
@@ -95,34 +90,8 @@ def _debug_tensor(name: str, tensor: torch.Tensor):
         print(f"[debug] {name}: <unavailable>", flush=True)
 
 
-def _messages_to_prompt(messages: List[dict]) -> str:
-    """
-    chat_template 없이 messages(list[role/content]) → 단일 프롬프트 문자열로 변환.
-
-    SOLAR 토크나이저에 chat_template 이 없어도 동작하도록 하기 위한 유틸.
-    """
-    parts = []
-    for msg in messages:
-        role = msg.get("role", "")
-        content = msg.get("content", "")
-        if not content:
-            continue
-
-        # 역할에 따라 간단한 태그만 붙여줌 (모델이 크게 민감하지 않도록)
-        if role == "system":
-            parts.append(f"[시스템]\n{content}")
-        elif role == "user":
-            parts.append(f"[사용자]\n{content}")
-        elif role == "assistant":
-            parts.append(f"[어시스턴트]\n{content}")
-        else:
-            parts.append(str(content))
-    prompt = "\n\n".join(parts).strip()
-    return prompt
-
-
 # =====================================================================
-# 핵심: 키워드/분위기 기반 시 생성 함수
+# 핵심: 키워드/분위기 기반 시 생성 함수 (엔진)
 # =====================================================================
 
 @torch.no_grad()
@@ -137,6 +106,10 @@ def generate_poem_from_keywords(
     acrostic: Optional[str] = None,
     model_type: Optional[str] = None,  # "solar" 또는 "kogpt2"
 ) -> str:
+    """
+    실제로 SOLAR/koGPT2에 프롬프트를 넣어서 시를 생성하는 엔진 함수.
+    - keywords, mood, lines 등을 이미 알고 있다는 가정.
+    """
     func_start = time.time()
     _log_header("시 생성 함수 진입 (단순 버전)")
 
@@ -158,16 +131,14 @@ def generate_poem_from_keywords(
     tok, model = _load_poem_model(actual_model_type)
     print(f"[step] ✓ 모델 로딩 완료 (device={_device_info()})", flush=True)
 
-    # 2) 프롬프트 & 토크나이즈 (최소 버전)
+    # 2) 프롬프트 & 토크나이즈
     print(f"[step] 2. 프롬프트 구성 및 토크나이즈", flush=True)
     t_enc = time.time()
 
     if not lines or lines <= 0:
         lines = DEFAULT_LINES
 
-    # === 여기서부터 chat_template 안 쓰도록 수정 ===
     if actual_model_type == "kogpt2":
-        # koGPT2용 프롬프트
         prompt_text = _build_messages_kogpt2(
             keywords=keywords,
             mood=mood,
@@ -180,7 +151,6 @@ def generate_poem_from_keywords(
         print(f"[step] koGPT2 프롬프트 (앞 200자): {repr(prompt_text[:200])}", flush=True)
         enc_ids = tok.encode(prompt_text, return_tensors="pt")
     else:
-        # SOLAR(또는 기타 chat 모델) → messages(list[dict])를 직접 문자열로 풀어서 사용
         messages = _build_messages(
             keywords=keywords,
             mood=mood,
@@ -190,12 +160,12 @@ def generate_poem_from_keywords(
             use_rhyme=use_rhyme,
             acrostic=acrostic,
         )
-        prompt_text = _messages_to_prompt(messages)
-        print(f"[step] SOLAR 프롬프트 (앞 200자): {repr(prompt_text[:200])}", flush=True)
-
-        # chat_template 없이 그냥 일반 텍스트 프롬프트로 인코딩
-        enc = tok(prompt_text, return_tensors="pt")
-        enc_ids = enc["input_ids"]
+        enc_ids = tok.apply_chat_template(
+            messages,
+            tokenize=True,
+            add_generation_prompt=True,
+            return_tensors="pt",
+        )
 
     # Tensor 형태 정리
     if isinstance(enc_ids, torch.Tensor):
@@ -213,7 +183,7 @@ def generate_poem_from_keywords(
     input_ids = enc_ids.to(model_device)
     attention_mask = torch.ones_like(input_ids, dtype=torch.long, device=model_device)
 
-    # 3) 생성 파라미터 (최소 인자)
+    # 3) 생성 파라미터 (단순)
     print("[step] 3. 생성 파라미터 설정 (단순)", flush=True)
     is_gpu = _is_gpu()
     safe_max_new = max_new_tokens
@@ -226,36 +196,12 @@ def generate_poem_from_keywords(
     else:
         safe_max_new = min(safe_max_new, 40)
 
-    # eos / pad 토큰 방어 코드
-    eos_token_id = tok.eos_token_id
-    pad_token_id = tok.pad_token_id
-
-    if eos_token_id is None:
-        # 일부 토크나이저는 eos_token_id가 None인 경우가 있음
-        if getattr(tok, "eos_token", None) is not None:
-            eos_token_id = tok.convert_tokens_to_ids(tok.eos_token)
-    if pad_token_id is None:
-        pad_token_id = eos_token_id
-
-    # 혹시라도 이상한 값이면 vocab 범위 안으로 보정
-    try:
-        vocab_size = getattr(model.config, "vocab_size", None)
-        if vocab_size is not None:
-            if eos_token_id is None or not (0 <= int(eos_token_id) < vocab_size):
-                print(f"[warn] eos_token_id({eos_token_id})가 vocab 범위를 벗어남 → 마지막 토큰으로 보정", flush=True)
-                eos_token_id = vocab_size - 1
-            if pad_token_id is None or not (0 <= int(pad_token_id) < vocab_size):
-                print(f"[warn] pad_token_id({pad_token_id})가 vocab 범위를 벗어남 → eos_token_id로 보정", flush=True)
-                pad_token_id = eos_token_id
-    except Exception as e:
-        print(f"[warn] eos/pad 토큰 보정 중 예외 발생: {type(e).__name__}: {str(e)[:100]}", flush=True)
-
     gen_kwargs = {
         "input_ids": input_ids,
         "attention_mask": attention_mask,
         "max_new_tokens": safe_max_new,
-        "eos_token_id": int(eos_token_id) if eos_token_id is not None else None,
-        "pad_token_id": int(pad_token_id) if pad_token_id is not None else None,
+        "eos_token_id": tok.eos_token_id,
+        "pad_token_id": tok.pad_token_id or tok.eos_token_id,
         "do_sample": True,
         "temperature": 0.7,
         "top_p": 0.9,
@@ -274,7 +220,6 @@ def generate_poem_from_keywords(
         out = model.generate(**gen_kwargs)
     except Exception as e:
         traceback.print_exc()
-        # 이 에러는 FastAPI 쪽에서 잡아서 detail로 내려감
         raise Exception(f"model.generate() 단계에서 오류 발생: {type(e).__name__}: {str(e)[:200]}")
 
     print(f"[step] ✓ 생성 완료 ({time.time() - t_gen:.2f}s)", flush=True)
@@ -297,27 +242,6 @@ def generate_poem_from_keywords(
     if not decoded:
         raise Exception("디코딩 결과가 비어 있습니다.")
 
-    # =================================================================
-    # 번역 단계: 비한국어가 섞여 있으면 translator로 한국어로 변환
-    # =================================================================
-    try:
-        lang_name, lang_code = detect_language(decoded)
-        print(f"[translator] 생성된 시 언어 감지 결과: {lang_name} ({lang_code})", flush=True)
-
-        # 한국어가 아니거나, 언어를 확실히 못 잡은 경우 → 번역 시도
-        if lang_code != "ko":
-            print("[translator] 생성된 시가 한국어가 아님 → 한국어 번역 시도", flush=True)
-            decoded = translate_poem_with_retry(decoded)
-        else:
-            print("[translator] 생성된 시가 이미 한국어로 인식됨 → 번역 생략", flush=True)
-    except Exception as e:
-        # 번역 실패해도 최소한 원문은 그대로 사용
-        print(
-            f"[translator] 번역 과정에서 예외 발생, 원문 그대로 사용: "
-            f"{type(e).__name__}: {str(e)[:200]}",
-            flush=True,
-        )
-
     # 6) 후처리 오류를 무시하고 최소한 텍스트는 반환
     try:
         poem = _postprocess_poem(decoded, min_lines=lines, max_lines=lines * 3).strip()
@@ -335,7 +259,7 @@ def generate_poem_from_keywords(
 
 
 # =====================================================================
-# 기존 API 호환용 (감정 → 분위기 매핑)
+# 기존 API 호환용 (감정 → 분위기 매핑, 직접 키워드 주는 경우)
 # =====================================================================
 
 def generate_poem(keywords: List[str], emotion: str, max_length: int = 120) -> str:
@@ -363,3 +287,101 @@ def generate_poem(keywords: List[str], emotion: str, max_length: int = 120) -> s
         lines=DEFAULT_LINES,
         max_new_tokens=max_new,
     )
+
+
+# =====================================================================
+# 새 진입 함수: 순수 텍스트만 받아서 전체 파이프라인 실행
+# =====================================================================
+
+def generate_poem_from_text(
+    text: str,
+    model_type: Optional[str] = None,
+    lines: Optional[int] = None,
+) -> Dict[str, Any]:
+    """
+    /api/poem/generate 에서 직접 호출할 래퍼.
+
+    1) 입력 text에서 키워드 추출 (keyword_extractor)
+    2) 감정/분위기 분석 (emotion_classifier)
+    3) SOLAR/koGPT2로 시 생성 (generate_poem_from_keywords)
+    4) translator로 비한국어가 있으면 한국어로 번역
+    5) JSON 응답 형태로 결과 반환
+
+    FastAPI 엔드포인트에서는 이 함수만 쓰면 됨.
+    """
+    from app.services.keyword_extractor import extract_keywords
+    from app.services.emotion_classifier import classify_emotion
+    from app.services.translator import translate_poem_with_retry
+
+    text = (text or "").strip()
+    if not text:
+        return {
+            "keywords": [],
+            "emotion": "중립",
+            "emotion_confidence": 0.0,
+            "poem": "",
+            "success": False,
+            "message": "입력 텍스트가 비어 있습니다.",
+        }
+
+    # 1) 키워드 추출
+    try:
+        keywords = extract_keywords(text, max_keywords=8)
+    except Exception as e:
+        print(f"[generate_poem_from_text] 키워드 추출 실패: {e}", flush=True)
+        keywords = []
+
+    # 2) 감정 + 분위기 분석 (emotion_classifier는 dict 반환)
+    try:
+        emo_info = classify_emotion(text)
+        emo_label = emo_info.get("emotion", "중립")
+        mood = emo_info.get("mood", "담담한")
+        emo_conf = float(emo_info.get("confidence", 0.0))
+    except Exception as e:
+        print(f"[generate_poem_from_text] 감정 분석 실패: {e}", flush=True)
+        emo_label, mood, emo_conf = "중립", "담담한", 0.0
+
+    # 3) max_new_tokens 결정
+    max_new_tokens = (
+        DEFAULT_MAX_NEW_TOKENS_GPU if _is_gpu() else DEFAULT_MAX_NEW_TOKENS_CPU
+    )
+
+    safe_lines = lines or DEFAULT_LINES
+
+    # 4) 실제 시 생성 (키워드 + mood 기반 엔진 호출)
+    try:
+        poem_text = generate_poem_from_keywords(
+            keywords=keywords,
+            mood=mood,
+            lines=safe_lines,
+            max_new_tokens=max_new_tokens,
+            original_text=text,
+            model_type=model_type,  # None이면 poem_config.MODEL_TYPE 사용
+        )
+    except Exception as e:
+        print(f"[generate_poem_from_text] 시 생성 실패: {e}", flush=True)
+        return {
+            "keywords": keywords,
+            "emotion": emo_label,
+            "emotion_confidence": emo_conf,
+            "poem": "",
+            "success": False,
+            "message": f"시 생성 중 오류가 발생했습니다: {e}",
+        }
+
+    # 5) 번역기: 비한국어가 있으면 한국어로 강제 번역 시도
+    try:
+        poem_text_ko = translate_poem_with_retry(poem_text)
+    except Exception as e:
+        print(f"[generate_poem_from_text] 번역 실패, 원문 그대로 사용: {e}", flush=True)
+        poem_text_ko = poem_text
+
+    # 6) API 응답 포맷
+    return {
+        "keywords": keywords,
+        "emotion": emo_label,
+        "emotion_confidence": emo_conf,
+        "poem": poem_text_ko,
+        "success": True,
+        "message": "시가 성공적으로 생성되었습니다.",
+    }
