@@ -25,7 +25,7 @@ except ImportError:
 
 # ===== 설정 =====
 # Colab에서 다운로드한 모델 폴더 경로 설정
-MODEL_PATH = "./trained_models/kogpt2_finetuned_fold1_20251109_084450"  # 실제 모델 경로로 변경하세요
+MODEL_PATH = ""  # 실제 모델 경로로 변경하세요
 
 # CPU 강제 사용 여부 (True로 설정하면 GPU가 있어도 CPU 사용)
 FORCE_CPU = False  # CPU만 사용하려면 True로 변경
