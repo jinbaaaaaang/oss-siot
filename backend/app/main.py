@@ -273,20 +273,20 @@ async def generate_poem_from_text(request: PoemRequest):
     if use_trained and not trained_model_path:
         trained_models_dir = backend_path / "trained_models"
         if trained_models_dir.exists():
+            # trained_models 폴더에 있는 모든 디렉토리 찾기 (이름 제한 없음)
             model_folders = [
                 f
                 for f in trained_models_dir.iterdir()
-                if f.is_dir()
-                and "20251109_08" in f.name
-                and "kogpt2" in f.name.lower()
+                if f.is_dir() and not f.name.startswith('.')
             ]
             if model_folders:
+                # 가장 최근에 수정된 폴더 선택
                 trained_model_path = str(
-                    sorted(model_folders, key=lambda x: x.name, reverse=True)[0]
+                    sorted(model_folders, key=lambda x: x.stat().st_mtime, reverse=True)[0]
                 )
                 print(f"[API] 자동으로 학습된 모델 찾음: {trained_model_path}", flush=True)
             else:
-                print("[API] ⚠️ 학습된 모델을 찾을 수 없습니다. 기본 모델 사용", flush=True)
+                print("[API] ⚠️ trained_models 폴더에 모델 디렉토리가 없습니다. 기본 모델 사용", flush=True)
                 use_trained = False
         else:
             print("[API] ⚠️ trained_models 폴더가 없습니다. 기본 모델 사용", flush=True)
