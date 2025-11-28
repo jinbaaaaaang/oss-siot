@@ -76,7 +76,7 @@
 
 ### 주요 특징
 
-#### ☆ 다중 AI 모델 지원
+####  다중 AI 모델 지원
 
 - **SOLAR-10.7B-Instruct**: GPU 환경에서 고품질 시 생성 (약 10.7B 파라미터)  
 - **파인튜닝된 koGPT2**: CPU 환경에서도 고품질 시 생성 가능 (KPoEM 데이터셋으로 학습)  
@@ -84,18 +84,18 @@
 
 시스템이 자동으로 GPU/CPU 환경을 감지하여 최적의 모델을 선택합니다.
 
-#### ☆ 지능형 감정 분석
+####  지능형 감정 분석
 
 - **XNLI 기반 제로샷 학습**으로 별도 학습 없이 감정 분류  
 - **다양한 감정 인식**: 기쁨, 슬픔, 중립, 사랑, 그리움 등  
 - **신뢰도 제공**: 감정 분류의 신뢰도를 수치로 제공  
 - **분위기 매핑**: 감정을 시의 분위기(잔잔한/담담한/쓸쓸한)로 자동 변환
 
-#### ☆ 자동 번역 기능
+####  자동 번역 기능
 
 AI 모델이 비한국어로 시를 생성한 경우, Google Cloud Translation API를 통해 자동으로 한국어로 번역합니다. 이를 통해 항상 한국어 시를 제공할 수 있습니다.
 
-#### ☆ 감정 추이 시각화
+####  감정 추이 시각화
 
 생성된 시들의 감정 데이터를 수집하여 다음과 같은 시각화를 제공합니다:
 
@@ -104,7 +104,7 @@ AI 모델이 비한국어로 시를 생성한 경우, Google Cloud Translation A
 - **감정 신뢰도 분포** – 감정 분석의 신뢰도를 바 차트로 표시  
 - **전체 기간 감정 추이** – 모든 시 생성 기록의 감정 변화 추이
 
-#### ☆ Gemini 기반 후처리
+####  Gemini 기반 후처리
 
 감정 데이터를 Gemini API를 활용하여 사용자 친화적인 스토리로 변환합니다. 단순한 통계가 아닌 자연스러운 문장으로 감정 패턴을 설명합니다.
 
@@ -114,10 +114,9 @@ AI 모델이 비한국어로 시를 생성한 경우, Google Cloud Translation A
 
 시옷은 일기를 시로 변환하는 웹 애플리케이션입니다. 메인 화면인 PoemGeneration 페이지에서는 상단에 SOLAR와 koGPT2 두 가지 모델을 선택할 수 있는 버튼이 있고, 아래에는 일상을 입력할 수 있는 텍스트 영역이 있습니다.
 
-<div style="display: flex; gap: 10px;">
-  <img src="./images/siot_start.png" alt="시작 화면" width="48%" />
-  <img src="./images/siot_start.gif" alt="시작 화면 GIF" width="48%" />
-</div>
+![시작 화면](./images/siot_start.png)
+
+<img src="./images/siot_start.gif" alt="시작 화면 GIF" width="100%" />
 
 ### 2. 입력 및 모델 선택
 
@@ -143,16 +142,13 @@ AI 모델이 비한국어로 시를 생성한 경우, Google Cloud Translation A
 
 시가 생성되면 화면에 여러 정보가 카드 형태로 표시됩니다. 생성된 시 본문이 가장 위에 표시되고, 그 아래에는 감정 분석 결과가 나타납니다. 추출된 키워드들도 함께 보여지며, 각 키워드는 시 생성 시 프롬프트에 포함되어 시의 내용에 반영됩니다. 이 시는 자동으로 브라우저의 localStorage에 저장되며, 필요하면 "보관함에 저장" 버튼을 눌러 수동으로도 저장할 수 있습니다.
 
-<div style="display: flex; gap: 10px;">
-  <div style="flex: 1;">
-    <strong>SOLAR 모델 결과:</strong>
-    <img src="./images/siot_solar_generator_2.png" alt="SOLAR 시 생성 2" width="100%" />
-  </div>
-  <div style="flex: 1;">
-    <strong>학습된 koGPT2 모델 결과:</strong>
-    <img src="./images/siot_gpt_generator_2.png" alt="koGPT2 시 생성 2" width="100%" />
-  </div>
-</div>
+**SOLAR 모델 결과:**
+
+![SOLAR 시 생성 2](./images/siot_solar_generator_2.png)
+
+**학습된 koGPT2 모델 결과:**
+
+![koGPT2 시 생성 2](./images/siot_gpt_generator_2.png)
 
 ### 5. 감정 추이 시각화 및 보관함
 
@@ -170,7 +166,7 @@ Settings 페이지에서는 기본 모델 선택, 자동 저장 기능, 데이�
 
 ![설정 화면](./images/siot_setting.png)
 
-## 기술적 특징
+## ☆ 기술적 특징
 
 ### 하이브리드 AI 접근
 
@@ -180,7 +176,7 @@ Settings 페이지에서는 기본 모델 선택, 자동 저장 기능, 데이�
 - **후처리**: Gemini API  
 - **번역**: Google Cloud Translation
 
-## 데이터 흐름
+## ☆ 데이터 흐름
 
 1. **사용자 입력** → 프론트엔드에서 일상글 입력  
 2. **키워드 추출** → TF-IDF로 핵심 키워드 추출  
@@ -191,7 +187,7 @@ Settings 페이지에서는 기본 모델 선택, 자동 저장 기능, 데이�
 7. **번역** → 비한국어 시는 한국어로 자동 번역  
 8. **결과 반환** → 시/메타데이터를 프론트엔드로 전달
 
-## 시 생성 파이프라인
+## ☆ 시 생성 파이프라인
 
 시옷은 다음과 같은 단계로 일상글을 시로 변환합니다:
 
@@ -229,13 +225,10 @@ Settings 페이지에서는 기본 모델 선택, 자동 저장 기능, 데이�
 - **줄 단위 번역**: 비한국어가 포함된 줄만 Google Cloud Translation API를 호출합니다. 번역 실패 시 최대 2회 재시도하며, 각 재시도 간 1초 대기합니다. 빈 줄도 그대로 유지하여 원본 시의 줄 구조를 보존합니다.
 - **한국어 강제 정리**: 번역 결과에서 한자, 영어, 기타 문자를 제거하고 한글만 남깁니다. 자주 사용되는 한자는 의미를 살려 한글로 변환합니다(예: 心 → 마음, 愛 → 사랑, 夢 → 꿈).
 
-### 8. (선택적) Gemini 기반 개선 (`app/main.py`)
-- **시 개선**: Google Gemini API를 사용하여 불필요한 텍스트를 제거하고 시적 표현을 개선합니다. 프롬프트 옵션(줄 수, 분위기, 필수 키워드, 금칙어, 운율 등)이 지정된 경우 이를 반영하여 개선합니다. 시의 주제와 핵심 의미는 유지하면서 표현만 개선합니다.
-
-### 9. 응답 조립 (`app/main.py`)
+### 8. 응답 조립 (`app/main.py`)
 - **JSON 응답**: 생성된 시, 키워드, 감정 레이블, 감정 신뢰도, 성공 여부 등을 JSON 형식으로 구성합니다. 옵션에 따라 Gemini 기반 감정 스토리를 생성하여 함께 반환할 수 있습니다.
 
-### 10. 프론트엔드 후처리 (`PoemGeneration.jsx`)
+### 9. 프론트엔드 후처리 (`PoemGeneration.jsx`)
 - **결과 표시**: 생성된 시, 키워드, 감정 분석 결과를 카드 형태로 화면에 표시합니다.
 - **자동 저장**: `localStorage`의 `saved_poems` 배열에 자동으로 저장합니다(설정에서 비활성화 가능). "보관함에 저장" 버튼을 통해 수동으로도 저장할 수 있습니다.
 - **데이터 재사용**: EmotionTrend 페이지에서 감정 추이 시각화, Archive 페이지에서 저장된 시 목록으로 활용됩니다.
@@ -583,8 +576,7 @@ POEM_MODEL_TYPE=kogpt2
 # POEM_MODEL_TYPE=solar
 ```
 
-> **팁**: 로컬 개발 시 `POEM_MODEL_TYPE=kogpt2`를 설정하면 GPU가 있어도 koGPT2로 빠르게 테스트할 수 있습니다.  
-> **참고**: 환경 변수를 설정하지 않으면 자동으로 GPU/CPU를 감지해 적절한 모델을 선택합니다. SOLAR는 GPU가 필요하며, koGPT2는 CPU에서도 실행 가능합니다.
+
 
 ### 학습된 모델 경로 설정
 
@@ -594,12 +586,11 @@ POEM_MODEL_TYPE=kogpt2
 - `backend/trained_models/` 폴더에 학습된 모델 폴더를 배치
 - 시스템이 자동으로 폴더 내 모든 디렉토리를 탐색하여 가장 최근에 수정된 모델을 자동으로 로드
 - 폴더 이름에 제한이 없으며, 어떤 이름이어도 자동으로 인식됩니다
+---
+   
+ 📄 API·외부 서비스 전체 가이드는 [`docs/API.md`](docs/API.md)를 참고하세요. Google Cloud Translation, Gemini, ngrok/Colab 연동, cURL 예시는 해당 문서에서 관리됩니다.
 
-> **참고**: 학습된 모델이 없으면 기본 koGPT2 모델을 사용합니다. 학습된 모델 사용 시 프론트엔드에서 "koGPT2 (CPU)" 옵션을 선택하면 자동으로 로드됩니다.
-
-> 📄 API·외부 서비스 전체 가이드는 [`docs/API.md`](docs/API.md)를 참고하세요. Google Cloud Translation, Gemini, ngrok/Colab 연동, cURL 예시는 해당 문서에서 관리됩니다.
-
-## 사용 모델 상세
+## ☆ 사용 모델 상세
 
 - **SOLAR-10.7B-Instruct**  
   - Upstage가 공개한 107억 파라미터급 한국어/영어 LLM입니다. 긴 문맥을 잃지 않고 함축적인 시어를 만드는 능력이 뛰어나며, Colab GPU에서 bitsandbytes 4bit NF4 양자화를 적용해 VRAM 사용량을 최소화합니다. 시옷은 instruct 프롬프트와 세밀한 샘플링 파라미터를 함께 사용해 줄 수·분위기·필수 키워드를 자연스럽게 반영합니다.
@@ -624,7 +615,7 @@ POEM_MODEL_TYPE=kogpt2
 - **Google Gemini API**  
   - 감정 데이터를 서술형 스토리로 풀어내거나 시를 자연스럽게 다듬는 후처리에 사용합니다. Prompt 기반 호출만으로 동작하므로 별도 파인튜닝 없이도 높은 품질을 제공하며, 감정 코멘트·사용자 맞춤 메시지 같은 다양한 추가 응답을 만들 수 있습니다.
 
-## 모델 비교 및 선택 가이드
+## ☆ 모델 비교 및 선택 가이드
 
 ### 모델 업그레이드 히스토리
 1. **polyglot-ko-1.3b** – 초기 1.3B 한국어 모델  
@@ -635,16 +626,6 @@ POEM_MODEL_TYPE=kogpt2
 현재 구조:
 - **CPU 환경**: koGPT2 파인튜닝 모델
 - **GPU 환경**: SOLAR
-
-| 항목 | SOLAR-10.7B-Instruct | koGPT2-base-v2 (파인튜닝) |
-|------|----------------------|---------------------------|
-| **권장 환경** | GPU (6-8GB VRAM) | CPU / GPU 모두 가능 |
-| **생성 속도** | 빠름 (GPU 기준) | 중간 (CPU 기준) |
-| **한국어 이해도** | 우수 | 양호 (파인튜닝 후 개선) |
-| **시적 표현력** | 자연스럽고 감성적 | 시다운 표현력 향상 |
-| **맥락 이해** | 우수 | 개선됨 |
-| **학습 여부** | 사전 학습 | KPoEM 파인튜닝 완료 |
-| **상태** | GPU 환경 권장 | CPU 환경 권장 |
 
 ### SOLAR 모델 선택의 장점
 1. 향상된 시적 품질  
@@ -663,15 +644,15 @@ POEM_MODEL_TYPE=kogpt2
 - CPU만 가능하면 파인튜닝 koGPT2 사용  
 - 프론트엔드에서 "koGPT2 (CPU)" 버튼을 누르면 학습 모델 자동 사용
 
-> **표현 스타일 차이**  
-> **SOLAR**: 한 줄에 여러 이미지를 압축해 넣는 편이며, 은유·상징을 자연스럽게 섞어 묵직한 고전 시 분위기를 만듭니다. 줄 수를 많이 지정하지 않아도 스스로 호흡을 조절하고, 감정 톤을 부드럽게 감싸는 경향이 있습니다.  
-> **koGPT2**: 감정과 사건을 비교적 직접적으로 서술해 현대 자유시·일기체에 가깝고, 줄 수·분위기·필수 키워드 옵션에 따라 표현이 즉시 달라집니다. 구어체에 가까운 말투나 솔직한 감정 표현을 원하는 경우 더 자연스럽게 느껴집니다.
+ **표현 스타일 차이**  
+**SOLAR**: 한 줄에 여러 이미지를 압축해 넣는 편이며, 은유·상징을 자연스럽게 섞어 묵직한 고전 시 분위기를 만듭니다. 줄 수를 많이 지정하지 않아도 스스로 호흡을 조절하고, 감정 톤을 부드럽게 감싸는 경향이 있습니다.  
+**koGPT2**: 감정과 사건을 비교적 직접적으로 서술해 현대 자유시·일기체에 가깝고, 줄 수·분위기·필수 키워드 옵션에 따라 표현이 즉시 달라집니다. 구어체에 가까운 말투나 솔직한 감정 표현을 원하는 경우 더 자연스럽게 느껴집니다.
 
 ### AI 모델 활용 전략
 1. **시 생성** – koGPT2 파인튜닝, k-fold 평가, 학습 모델 자동 로드  
 2. **감정 분석 후처리** – Gemini API로 감정 스토리 생성
 
-### ☆ koGPT2 파인튜닝 완료
+###  koGPT2 파인튜닝 완료
 - **데이터셋**: KPoEM  
 - **방법**: Full Fine-tuning, 5-fold, Colab GPU  
 - **하이퍼파라미터**: EPOCHS=2, LR=5e-5, BATCH=4, GradAccum=4  
@@ -685,7 +666,9 @@ POEM_MODEL_TYPE=kogpt2
 - 한국어 비율  
 - 성공률
 
-## Colab 학습 파이프라인 상세
+## ☆ Colab 학습 파이프라인 상세
+
+`train_koGPT2.ipynb` 파일을 Google Colab에서 불러오고 실행하면 모델을 학습시킬 수 있습니다. 학습이 완료되면 모델을 다운로드하여 `backend/trained_models/` 폴더에 배치하면 자동으로 로드됩니다.
 
 ### 학습 데이터셋
 
@@ -743,7 +726,7 @@ k-fold 교차 검증에서는 학습 중과 학습 후 두 단계로 성능을 �
 - 학습된 모델은 `backend/trained_models/` 디렉터리에 배치되면 FastAPI가 자동으로 로드
 - 프론트엔드에서 "koGPT2 (CPU)" 모델 선택 시 파인튜닝된 모델이 사용되며, Temperature 0.65, Top-p 0.85, 반복 패널티 1.6 등 시 특화 하이퍼파라미터로 추론 수행
 
-## 모델 심화 비교 (SOLAR vs 파인튜닝 koGPT2)
+## ☆ 모델 심화 비교 (SOLAR vs 파인튜닝 koGPT2)
 
 | 항목 | SOLAR-10.7B-Instruct | koGPT2-base-v2 (KPoEM 파인튜닝) |
 |------|----------------------|--------------------------------|
@@ -785,7 +768,7 @@ cd backend
 source .venv/bin/activate
 python download_model.py
 ```
-> 모델은 `~/.cache/huggingface/hub/`에 저장됩니다. SOLAR는 약 21GB, koGPT2는 약 500MB입니다. `POEM_MODEL_TYPE`에 따라 다운로드 대상이 달라집니다.
+ 모델은 `~/.cache/huggingface/hub/`에 저장됩니다. SOLAR는 약 21GB, koGPT2는 약 500MB입니다. `POEM_MODEL_TYPE`에 따라 다운로드 대상이 달라집니다.
 
 ### 3. 서버 실행
 - **직접 실행**
@@ -817,66 +800,11 @@ npm install   # 최초 1회
 npm run dev   # http://localhost:5173
 ```
 
-`.env` 예시:
-```env
-VITE_API_URL=http://localhost:8000/api/poem/generate
-VITE_COLAB_API_URL=https://your-ngrok-url.ngrok-free.dev
-```
-> SOLAR 사용 시 ngrok URL을 설정하고 프론트엔드를 재시작하세요.
+
 
 ## Google Colab에서 실행
 
-### 1. 노트북 준비
-Colab에서 새 노트북을 열고 `backend/colab_server.py` 내용을 실행합니다.
-
-### 2. 환경 변수
-```python
-import os
-os.environ['NGROK_TOKEN'] = 'your-ngrok-token'
-os.environ['GOOGLE_CLOUD_PROJECT_ID'] = 'your-project-id'
-os.environ['GEMINI_API_KEY'] = 'your-gemini-api-key'
-```
-
-### 3. 서버 실행
-```python
-!python colab_server.py
-```
-또는 패키지를 수동 설치한 뒤 `uvicorn` 실행.
-
-### 4. ngrok 터널
-```python
-from pyngrok import ngrok
-ngrok.set_auth_token(os.getenv('NGROK_TOKEN'))
-tunnel = ngrok.connect(8000, bind_tls=True)
-print(tunnel.public_url)
-```
-
-### 5. 프론트엔드 연결
-생성된 ngrok URL을 `VITE_COLAB_API_URL`에 설정합니다.  
-> Colab 세션이 종료되면 URL이 무효화되며, 무료 플랜은 세션당 2시간 제한이 있습니다.
-
-## 문제 해결
-
-### 포트가 이미 사용 중일 때
-```bash
-lsof -i :8000          # macOS/Linux
-netstat -ano | findstr :8000  # Windows
-kill -9 <PID>          # macOS/Linux
-taskkill /PID <PID> /F # Windows
-```
-또는 다른 포트 사용: `uvicorn ... --port 8001`
-
-### 모듈을 찾을 수 없을 때
-```bash
-pip install -r requirements.txt
-pip list | grep -E "(fastapi|uvicorn|transformers|torch)"
-```
-
-### 학습된 모델을 찾을 수 없을 때
-```bash
-ls -la backend/trained_models/
-```
-모델이 없으면 Colab에서 다운로드한 폴더를 복사하거나 다운로드 스크립트를 실행합니다.
+`GPU_backend.ipynb` 파일을 Google Colab에서 불러오고 실행하면 됩니다.
 
 ## 서버 실행 옵션
 - `--reload`: 코드 변경 시 자동 재시작 (개발 모드)
