@@ -112,7 +112,6 @@ async def startup_event():
         import traceback
         traceback.print_exc()
 
-
 # ============================
 # Pydantic 모델 정의
 # ============================
