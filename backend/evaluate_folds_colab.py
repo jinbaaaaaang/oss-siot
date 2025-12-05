@@ -4,8 +4,11 @@ Colab에서 학습된 k-fold 모델들의 성능을 평가하는 스크립트
 
 사용 방법:
 1. Colab에서 이 파일을 업로드하거나 내용을 복사
-2. Colab 셀에서 실행
-3. 각 fold 모델의 성능을 비교하여 가장 좋은 모델 찾기
+2. Colab 셀에서 실행 전에 한글 폰트 설치 (선택사항):
+   !apt-get install -y fonts-nanum
+   !fc-cache -fv
+3. Colab 셀에서 실행
+4. 각 fold 모델의 성능을 비교하여 가장 좋은 모델 찾기
 """
 
 import os
@@ -15,9 +18,37 @@ from typing import List, Dict, Tuple
 import torch
 import numpy as np
 from sklearn.model_selection import KFold
+from sklearn.metrics import (
+    confusion_matrix, 
+    classification_report, 
+    accuracy_score, 
+    precision_score, 
+    recall_score, 
+    f1_score,
+    precision_recall_fscore_support
+)
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from datasets import load_dataset
 import re
+try:
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+    MATPLOTLIB_AVAILABLE = True
+    
+    # 마이너스 기호 깨짐 방지
+    plt.rcParams['axes.unicode_minus'] = False
+except ImportError:
+    MATPLOTLIB_AVAILABLE = False
+    print("⚠️ matplotlib/seaborn이 설치되지 않았습니다. 시각화 기능을 사용할 수 없습니다.")
+
+# BERTScore 라이브러리 (선택적)
+try:
+    from bert_score import score as bert_score
+    BERTSCORE_AVAILABLE = True
+except ImportError:
+    BERTSCORE_AVAILABLE = False
+    print("⚠️ bert-score가 설치되지 않았습니다. BERTScore 평가를 사용할 수 없습니다.")
+    print("   설치 방법: pip install bert-score")
 
 # ===== 설정 =====
 MODEL_ID = "skt/kogpt2-base-v2"
@@ -237,6 +268,66 @@ def calculate_similarity(text1: str, text2: str) -> float:
     union = words1.union(words2)
     
     return len(intersection) / len(union) if union else 0.0
+
+
+def calculate_bertscore(references: List[str], candidates: List[str], device: str = "cpu") -> Dict[str, float]:
+    """
+    BERTScore를 사용하여 참조 텍스트와 생성 텍스트 간의 의미적 유사도를 계산합니다.
+    
+    Args:
+        references: 참조 텍스트 리스트 (원본 시)
+        candidates: 생성 텍스트 리스트 (생성된 시)
+        device: 계산에 사용할 디바이스 ("cpu" 또는 "cuda")
+    
+    Returns:
+        BERTScore 점수 딕셔너리 (precision, recall, f1의 평균)
+    """
+    if not BERTSCORE_AVAILABLE:
+        return {
+            'precision': 0.0,
+            'recall': 0.0,
+            'f1': 0.0,
+            'available': False
+        }
+    
+    if not references or not candidates:
+        return {
+            'precision': 0.0,
+            'recall': 0.0,
+            'f1': 0.0,
+            'available': True
+        }
+    
+    try:
+        # BERTScore 계산 (배치 처리)
+        P, R, F1 = bert_score(
+            candidates,
+            references,
+            lang='ko',  # 한국어 모델 사용
+            verbose=False,
+            device=device
+        )
+        
+        # 텐서를 numpy로 변환 후 평균 계산
+        precision_mean = float(P.mean().cpu().item())
+        recall_mean = float(R.mean().cpu().item())
+        f1_mean = float(F1.mean().cpu().item())
+        
+        return {
+            'precision': precision_mean,
+            'recall': recall_mean,
+            'f1': f1_mean,
+            'available': True
+        }
+    except Exception as e:
+        print(f"⚠️ BERTScore 계산 중 오류 발생: {e}")
+        return {
+            'precision': 0.0,
+            'recall': 0.0,
+            'f1': 0.0,
+            'available': False,
+            'error': str(e)
+        }
 
 
 def evaluate_keyword_relevance(original_text: str, keywords: List[str], generated_poem: str) -> Dict[str, float]:
@@ -488,19 +579,19 @@ def evaluate_poetry_quality(poem: str) -> Dict[str, float]:
         is_explanation = True
     
     # 산문 판정: 선언적 종결어미가 많거나, 주어/시간 표시가 많으면 (기준 완화)
-    if declarative_count >= 5 or subject_time_count >= 5:  # 3 → 5로 완화
+    if declarative_count >= 8 or subject_time_count >= 8:  # 5 → 8로 완화
         is_prose = True
     
-    # 패널티 계산 (더 강력하게)
+    # 패널티 계산 (기준 완화)
     total_penalty_score = (
-        declarative_count * 0.15 +  # 선언적 종결어미는 강하게 감점
-        subject_time_count * 0.10 +  # 주어/시간 표시 감점
-        diary_count * 0.20 +  # 일기 패턴은 더 강하게 감점
-        explanation_count * 0.15  # 설명문 패턴 감점
+        declarative_count * 0.10 +  # 선언적 종결어미 감점 완화 (0.15 → 0.10)
+        subject_time_count * 0.08 +  # 주어/시간 표시 감점 완화 (0.10 → 0.08)
+        diary_count * 0.15 +  # 일기 패턴 감점 완화 (0.20 → 0.15)
+        explanation_count * 0.12  # 설명문 패턴 감점 완화 (0.15 → 0.12)
     )
     
-    # 최대 패널티는 0.8 (80% 감점)
-    prose_penalty = min(0.8, total_penalty_score)
+    # 최대 패널티는 0.7 (70% 감점) - 완화 (0.8 → 0.7)
+    prose_penalty = min(0.7, total_penalty_score)
     
     # ===== 4. 시적 표현 보너스 =====
     poetry_bonus = 0.0
@@ -558,13 +649,13 @@ def evaluate_poetry_quality(poem: str) -> Dict[str, float]:
     # 시적 표현 보너스 추가 (25% 가중치)
     overall_score = penalty_adjusted_score + (poetry_bonus * 0.25)
     
-    # 산문/일기/설명문이면 강하게 감점
+    # 산문/일기/설명문이면 감점 (기준 완화)
     if is_prose:
-        overall_score *= 0.5  # 50% 추가 감점
+        overall_score *= 0.7  # 30% 추가 감점 (0.5 → 0.7로 완화)
     if is_diary:
-        overall_score *= 0.6  # 40% 추가 감점
+        overall_score *= 0.75  # 25% 추가 감점 (0.6 → 0.75로 완화)
     if is_explanation:
-        overall_score *= 0.7  # 30% 추가 감점
+        overall_score *= 0.8  # 20% 추가 감점 (0.7 → 0.8로 완화)
     
     # 최소 0.0, 최대 1.0으로 제한
     overall_score = max(0.0, min(1.0, overall_score))
@@ -589,6 +680,336 @@ def evaluate_poetry_quality(poem: str) -> Dict[str, float]:
         'is_diary': is_diary,
         'is_explanation': is_explanation
     }
+
+
+def calculate_classification_metrics(results: List[Dict]) -> Dict:
+    """
+    평가 결과로부터 confusion matrix와 classification metrics를 계산합니다.
+    
+    Returns:
+        감정 분류, 성공/실패 분류, 시 품질 통계에 대한 metrics
+    """
+    # 감정 분류 데이터 수집
+    emotion_true = []
+    emotion_pred = []
+    
+    # 성공/실패 분류
+    success_true = []  # 실제로는 항상 True를 목표
+    success_pred = []
+    
+    # 시 품질 점수 수집 (통계용)
+    poetry_scores = []
+    prose_count = 0
+    diary_count = 0
+    explanation_count = 0
+    
+    for r in results:
+        if not r.get('generated_poem'):
+            continue
+        
+        # 감정 분류
+        original_mood = r.get('mood', '잔잔한')
+        emotion_relevance = r.get('emotion_relevance', {})
+        detected_mood = emotion_relevance.get('detected_mood', 'unknown')
+        
+        if original_mood and detected_mood != 'unknown':
+            emotion_true.append(original_mood)
+            emotion_pred.append(detected_mood)
+        
+        # 시 품질 통계 수집
+        poetry_quality = r.get('poetry_quality', {})
+        if poetry_quality:
+            poetry_scores.append(poetry_quality.get('overall_score', 0.0))
+            if poetry_quality.get('is_prose', False):
+                prose_count += 1
+            if poetry_quality.get('is_diary', False):
+                diary_count += 1
+            if poetry_quality.get('is_explanation', False):
+                explanation_count += 1
+        
+        # 성공/실패 분류
+        success = r.get('success', False)
+        success_true.append(True)  # 목표는 항상 성공
+        success_pred.append(success)
+    
+    metrics = {}
+    
+    # 감정 분류 metrics
+    if emotion_true and emotion_pred:
+        emotion_labels = sorted(set(emotion_true + emotion_pred))
+        emotion_cm = confusion_matrix(emotion_true, emotion_pred, labels=emotion_labels)
+        emotion_acc = accuracy_score(emotion_true, emotion_pred)
+        
+        # precision, recall, f1 per class
+        emotion_precision, emotion_recall, emotion_f1, _ = precision_recall_fscore_support(
+            emotion_true, emotion_pred, labels=emotion_labels, zero_division=0
+        )
+        
+        metrics['emotion'] = {
+            'confusion_matrix': emotion_cm.tolist(),
+            'labels': emotion_labels,
+            'accuracy': float(emotion_acc),
+            'precision': {label: float(p) for label, p in zip(emotion_labels, emotion_precision)},
+            'recall': {label: float(r) for label, r in zip(emotion_labels, emotion_recall)},
+            'f1_score': {label: float(f) for label, f in zip(emotion_labels, emotion_f1)},
+            'classification_report': classification_report(emotion_true, emotion_pred, labels=emotion_labels, zero_division=0)
+        }
+    
+    # 시 품질 통계 metrics
+    if poetry_scores:
+        import numpy as np
+        metrics['poetry_quality_stats'] = {
+            'mean': float(np.mean(poetry_scores)),
+            'median': float(np.median(poetry_scores)),
+            'std': float(np.std(poetry_scores)),
+            'min': float(np.min(poetry_scores)),
+            'max': float(np.max(poetry_scores)),
+            'total_samples': len(poetry_scores),
+            'prose_count': prose_count,
+            'diary_count': diary_count,
+            'explanation_count': explanation_count,
+            'non_poetry_count': prose_count + diary_count + explanation_count,
+            'poetry_rate': float((len(poetry_scores) - prose_count - diary_count - explanation_count) / len(poetry_scores)) if poetry_scores else 0.0
+        }
+    
+    # 성공/실패 분류 metrics
+    if success_true and success_pred:
+        success_labels = [True, False]
+        success_cm = confusion_matrix(success_true, success_pred, labels=success_labels)
+        success_acc = accuracy_score(success_true, success_pred)
+        
+        success_precision, success_recall, success_f1, _ = precision_recall_fscore_support(
+            success_true, success_pred, labels=success_labels, zero_division=0
+        )
+        
+        metrics['success'] = {
+            'confusion_matrix': success_cm.tolist(),
+            'labels': success_labels,
+            'accuracy': float(success_acc),
+            'precision': {str(label): float(p) for label, p in zip(success_labels, success_precision)},
+            'recall': {str(label): float(r) for label, r in zip(success_labels, success_recall)},
+            'f1_score': {str(label): float(f) for label, f in zip(success_labels, success_f1)},
+            'classification_report': classification_report(success_true, success_pred, labels=success_labels, zero_division=0)
+        }
+    
+    # BERTScore 통계 metrics
+    bertscore_f1_scores = [r.get('bertscore', {}).get('f1', 0.0) 
+                          for r in results if r.get('bertscore')]
+    bertscore_precision_scores = [r.get('bertscore', {}).get('precision', 0.0) 
+                                 for r in results if r.get('bertscore')]
+    bertscore_recall_scores = [r.get('bertscore', {}).get('recall', 0.0) 
+                              for r in results if r.get('bertscore')]
+    
+    if bertscore_f1_scores:
+        import numpy as np
+        metrics['bertscore_stats'] = {
+            'mean_f1': float(np.mean(bertscore_f1_scores)),
+            'mean_precision': float(np.mean(bertscore_precision_scores)),
+            'mean_recall': float(np.mean(bertscore_recall_scores)),
+            'std_f1': float(np.std(bertscore_f1_scores)),
+            'min_f1': float(np.min(bertscore_f1_scores)),
+            'max_f1': float(np.max(bertscore_f1_scores)),
+            'sample_count': len(bertscore_f1_scores),
+            'available': True
+        }
+    else:
+        metrics['bertscore_stats'] = {
+            'available': False
+        }
+    
+    return metrics
+
+
+def translate_labels_to_english(labels):
+    """
+    한글 라벨을 영어로 변환합니다 (폰트 없이도 작동하도록).
+    
+    Args:
+        labels: 한글 또는 영어 라벨 리스트
+    
+    Returns:
+        영어 라벨 리스트
+    """
+    translation_map = {
+        # 감정
+        '밝은': 'Bright',
+        '어두운': 'Dark',
+        '잔잔한': 'Calm',
+        '쓸쓸한': 'Lonely',
+        '격한': 'Intense',
+        '신기한': 'Surprised',
+        '무서운': 'Scary',
+        '싫은': 'Disgusted',
+        '따뜻한': 'Warm',
+        '그리운': 'Nostalgic',
+        '불안한': 'Anxious',
+        '담담한': 'Neutral',
+        # 시 형태
+        '시': 'Poetry',
+        '비시': 'Non-Poetry',
+        '산문': 'Prose',
+        '일기': 'Diary',
+        '설명문': 'Explanation',
+        # 기타
+        'unknown': 'Unknown',
+        '중립': 'Neutral',
+        True: 'Success',
+        False: 'Failure'
+    }
+    
+    translated = []
+    for label in labels:
+        if isinstance(label, bool):
+            translated.append(translation_map.get(label, str(label)))
+        else:
+            translated.append(translation_map.get(label, label))
+    
+    return translated
+
+
+def translate_title_to_english(title: str) -> str:
+    """
+    제목의 한글을 영어로 변환합니다.
+    
+    Args:
+        title: 한글 제목
+    
+    Returns:
+        영어 제목
+    """
+    title_map = {
+        '감정 분류 Confusion Matrix': 'Emotion Classification Confusion Matrix',
+        '성공/실패 분류 Confusion Matrix': 'Success/Failure Classification Confusion Matrix',
+        '감정 분류 Confusion Matrix (전체 Fold)': 'Emotion Classification Confusion Matrix (All Folds)',
+        '성공/실패 분류 Confusion Matrix (전체 Fold)': 'Success/Failure Classification Confusion Matrix (All Folds)'
+    }
+    
+    return title_map.get(title, title)
+
+
+def plot_confusion_matrix(cm, labels, title, fold_idx=None, save_path=None):
+    """
+    Confusion matrix를 시각화합니다.
+    
+    Args:
+        cm: confusion matrix (numpy array)
+        labels: 클래스 라벨 리스트
+        title: 그래프 제목
+        fold_idx: fold 번호 (옵션)
+        save_path: 저장 경로 (옵션)
+    """
+    if not MATPLOTLIB_AVAILABLE:
+        print(f"⚠️ matplotlib이 설치되지 않아 {title} 시각화를 건너뜁니다.")
+        return
+    
+    # 한글 라벨을 영어로 변환 (폰트 없이도 작동하도록)
+    english_labels = translate_labels_to_english(labels)
+    # 제목도 영어로 변환
+    english_title = translate_title_to_english(title)
+    
+    plt.rcParams['axes.unicode_minus'] = False  # 마이너스 기호 깨짐 방지
+    
+    plt.figure(figsize=(10, 8))
+    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', 
+                xticklabels=english_labels, yticklabels=english_labels,
+                cbar_kws={'label': 'Count'})
+    plt.title(f"{english_title}{f' (Fold {fold_idx})' if fold_idx else ''}", fontsize=14, fontweight='bold')
+    plt.ylabel('True Label', fontsize=12)
+    plt.xlabel('Predicted Label', fontsize=12)
+    plt.tight_layout()
+    
+    if save_path:
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        print(f"✅ Confusion matrix 저장: {save_path}")
+    else:
+        plt.show()
+    
+    plt.close()
+
+
+def print_classification_metrics(metrics: Dict, fold_idx: int = None):
+    """
+    Classification metrics를 출력합니다.
+    """
+    fold_prefix = f"[Fold {fold_idx}] " if fold_idx else ""
+    
+    # 감정 분류 metrics
+    if 'emotion' in metrics:
+        em = metrics['emotion']
+        print(f"\n{'='*80}")
+        print(f"{fold_prefix}감정 분류 평가 지표")
+        print(f"{'='*80}")
+        print(f"정확도 (Accuracy): {em['accuracy']:.4f}")
+        print(f"\n클래스별 성능:")
+        for label in em['labels']:
+            print(f"  {label}:")
+            print(f"    Precision: {em['precision'].get(label, 0.0):.4f}")
+            print(f"    Recall: {em['recall'].get(label, 0.0):.4f}")
+            print(f"    F1-Score: {em['f1_score'].get(label, 0.0):.4f}")
+        print(f"\nConfusion Matrix:")
+        print(f"  Labels: {em['labels']}")
+        for i, row in enumerate(em['confusion_matrix']):
+            print(f"  {em['labels'][i]}: {row}")
+        print(f"\nClassification Report:")
+        print(em['classification_report'])
+    
+    # 시 품질 통계 metrics
+    if 'poetry_quality_stats' in metrics:
+        pqs = metrics['poetry_quality_stats']
+        print(f"\n{'='*80}")
+        print(f"{fold_prefix}Poetry Quality Statistics")
+        print(f"{'='*80}")
+        print(f"평균 시 품질 점수: {pqs['mean']:.4f} (0.0=산문, 1.0=시)")
+        print(f"중앙값: {pqs['median']:.4f}")
+        print(f"표준편차: {pqs['std']:.4f}")
+        print(f"최소값: {pqs['min']:.4f}")
+        print(f"최대값: {pqs['max']:.4f}")
+        print(f"\n시 형태 분포:")
+        print(f"  시로 판정: {pqs['total_samples'] - pqs['non_poetry_count']}개 ({pqs['poetry_rate']:.2%})")
+        print(f"  산문으로 판정: {pqs['prose_count']}개")
+        print(f"  일기로 판정: {pqs['diary_count']}개")
+        print(f"  설명문으로 판정: {pqs['explanation_count']}개")
+        print(f"  비시 총계: {pqs['non_poetry_count']}개 ({1.0 - pqs['poetry_rate']:.2%})")
+    
+    # BERTScore metrics
+    if 'bertscore_stats' in metrics:
+        bs = metrics['bertscore_stats']
+        print(f"\n{'='*80}")
+        print(f"{fold_prefix}의미 유사도 평가 (BERTScore)")
+        print(f"{'='*80}")
+        if bs.get('available', False):
+            print(f"평균 BERTScore F1: {bs.get('mean_f1', 0.0):.4f} (0.0=다름, 1.0=동일)")
+            print(f"평균 Precision: {bs.get('mean_precision', 0.0):.4f}")
+            print(f"평균 Recall: {bs.get('mean_recall', 0.0):.4f}")
+            print(f"표준편차 F1: {bs.get('std_f1', 0.0):.4f}")
+            print(f"최소값 F1: {bs.get('min_f1', 0.0):.4f}")
+            print(f"최대값 F1: {bs.get('max_f1', 0.0):.4f}")
+            print(f"평가 샘플 수: {bs.get('sample_count', 0)}개")
+            print(f"\n원본 시와 생성 시의 의미적 유사도를 BERT 모델을 사용하여 측정합니다.")
+        else:
+            print(f"⚠️ BERTScore를 사용할 수 없습니다 (라이브러리 미설치 또는 계산 실패)")
+            print(f"   설치 방법: pip install bert-score")
+    
+    # 성공/실패 분류 metrics
+    if 'success' in metrics:
+        sc = metrics['success']
+        print(f"\n{'='*80}")
+        print(f"{fold_prefix}성공/실패 분류 평가 지표")
+        print(f"{'='*80}")
+        print(f"정확도 (Accuracy): {sc['accuracy']:.4f}")
+        print(f"\n클래스별 성능:")
+        for label in sc['labels']:
+            label_str = str(label)
+            print(f"  {label_str}:")
+            print(f"    Precision: {sc['precision'].get(label_str, 0.0):.4f}")
+            print(f"    Recall: {sc['recall'].get(label_str, 0.0):.4f}")
+            print(f"    F1-Score: {sc['f1_score'].get(label_str, 0.0):.4f}")
+        print(f"\nConfusion Matrix:")
+        print(f"  Labels: {sc['labels']}")
+        for i, row in enumerate(sc['confusion_matrix']):
+            print(f"  {sc['labels'][i]}: {row}")
+        print(f"\nClassification Report:")
+        print(sc['classification_report'])
 
 
 def evaluate_fold_model(
@@ -835,6 +1256,50 @@ def evaluate_fold_model(
                 'error': str(e)
             })
     
+    # BERTScore 계산 (배치 처리)
+    print(f"\n[2.5/3] BERTScore 계산 중...")
+    bertscore_results = None
+    if BERTSCORE_AVAILABLE:
+        references = []
+        candidates = []
+        valid_indices = []
+        
+        for idx, r in enumerate(results):
+            if r.get('generated_poem') and r.get('original_poem'):
+                references.append(r['original_poem'])
+                candidates.append(r['generated_poem'])
+                valid_indices.append(idx)
+        
+        if references and candidates:
+            print(f"  - BERTScore 계산 대상: {len(references)}개")
+            bertscore_results = calculate_bertscore(references, candidates, device)
+            
+            # 각 결과에 BERTScore 점수 추가
+            if bertscore_results.get('available', False):
+                # 개별 점수 계산 (배치로 한 번에 계산)
+                P, R, F1 = bert_score(
+                    candidates,
+                    references,
+                    lang='ko',
+                    verbose=False,
+                    device=device
+                )
+                
+                # 각 결과에 개별 점수 추가
+                for idx, result_idx in enumerate(valid_indices):
+                    results[result_idx]['bertscore'] = {
+                        'precision': float(P[idx].cpu().item()),
+                        'recall': float(R[idx].cpu().item()),
+                        'f1': float(F1[idx].cpu().item())
+                    }
+                print(f"  ✅ BERTScore 계산 완료")
+            else:
+                print(f"  ⚠️ BERTScore 계산 실패")
+        else:
+            print(f"  ⚠️ BERTScore 계산할 데이터가 없습니다.")
+    else:
+        print(f"  ⚠️ bert-score 라이브러리가 설치되지 않아 BERTScore를 계산할 수 없습니다.")
+    
     # 결과 정리
     avg_similarity = np.mean(similarities) if similarities else 0.0
     success_rate = success_count / len(test_data) if test_data else 0.0
@@ -1000,8 +1465,21 @@ def evaluate_fold_model(
     print(f"\n  💭 감정 반영 평가:")
     print(f"    - 평균 감정 점수: {avg_emotion_score:.4f} (0.0=반영 안됨, 1.0=완벽 반영)")
     print(f"    - 평균 감정 일치도: {avg_emotion_match:.4f} (원본 감정과 일치하는 비율)")
+    # BERTScore 평균 계산
+    bertscore_f1_scores = [r.get('bertscore', {}).get('f1', 0.0) 
+                           for r in results if r.get('bertscore')]
+    avg_bertscore_f1 = np.mean(bertscore_f1_scores) if bertscore_f1_scores else 0.0
+    avg_bertscore_precision = np.mean([r.get('bertscore', {}).get('precision', 0.0) 
+                                      for r in results if r.get('bertscore')]) if bertscore_f1_scores else 0.0
+    avg_bertscore_recall = np.mean([r.get('bertscore', {}).get('recall', 0.0) 
+                                    for r in results if r.get('bertscore')]) if bertscore_f1_scores else 0.0
+    
     print(f"\n  📊 기타:")
-    print(f"    - 평균 유사도 (원본 시와): {avg_similarity:.4f}")
+    print(f"    - 평균 유사도 (원본 시와, 단어 기반): {avg_similarity:.4f}")
+    if bertscore_results and bertscore_results.get('available', False):
+        print(f"    - 평균 BERTScore F1: {avg_bertscore_f1:.4f} (의미적 유사도)")
+    elif not BERTSCORE_AVAILABLE:
+        print(f"    - BERTScore: 라이브러리 미설치 (pip install bert-score)")
     
     # 디버깅: 생성된 시 샘플 확인
     print(f"\n  [디버깅 정보]")
@@ -1015,6 +1493,57 @@ def evaluate_fold_model(
         if results:
             print(f"  - 첫 번째 결과:")
             print(f"    {repr(results[0].get('generated_poem', 'None')[:150])}")
+    
+    # Classification metrics 계산
+    classification_metrics = calculate_classification_metrics(results)
+    
+    # Classification metrics 출력
+    if classification_metrics:
+        print(f"\n{'='*80}")
+        print(f"[Fold {fold_idx} Classification Metrics]")
+        print(f"{'='*80}")
+        print_classification_metrics(classification_metrics, fold_idx)
+        
+        # Confusion matrix 시각화 (matplotlib 사용 가능한 경우)
+        if MATPLOTLIB_AVAILABLE:
+            output_dir = Path(f"evaluation_results_fold_{fold_idx}")
+            output_dir.mkdir(exist_ok=True)
+            
+            if 'emotion' in classification_metrics:
+                em = classification_metrics['emotion']
+                cm = np.array(em['confusion_matrix'])
+                plot_confusion_matrix(
+                    cm, em['labels'], 
+                    f"감정 분류 Confusion Matrix",
+                    fold_idx=fold_idx,
+                    save_path=str(output_dir / f"emotion_cm_fold_{fold_idx}.png")
+                )
+            
+            if 'success' in classification_metrics:
+                sc = classification_metrics['success']
+                cm = np.array(sc['confusion_matrix'])
+                plot_confusion_matrix(
+                    cm, [str(l) for l in sc['labels']],
+                    f"성공/실패 분류 Confusion Matrix",
+                    fold_idx=fold_idx,
+                    save_path=str(output_dir / f"success_cm_fold_{fold_idx}.png")
+                )
+            
+            # BERTScore 분포 시각화
+            if bertscore_f1_scores and len(bertscore_f1_scores) > 0:
+                try:
+                    plt.figure(figsize=(10, 6))
+                    plt.hist(bertscore_f1_scores, bins=20, edgecolor='black', alpha=0.7)
+                    plt.xlabel('BERTScore F1', fontsize=12)
+                    plt.ylabel('Frequency', fontsize=12)
+                    plt.title(f'BERTScore F1 Distribution (Fold {fold_idx})', fontsize=14, fontweight='bold')
+                    plt.grid(True, alpha=0.3)
+                    plt.tight_layout()
+                    plt.savefig(str(output_dir / f"bertscore_distribution_fold_{fold_idx}.png"), dpi=300, bbox_inches='tight')
+                    print(f"✅ BERTScore 분포 차트 저장: {output_dir / f'bertscore_distribution_fold_{fold_idx}.png'}")
+                    plt.close()
+                except Exception as e:
+                    print(f"⚠️ BERTScore 분포 차트 생성 실패: {e}")
     
     # 메모리 정리
     del model
@@ -1038,6 +1567,11 @@ def evaluate_fold_model(
         'avg_emotion_score': avg_emotion_score,
         'avg_emotion_match': avg_emotion_match,
         'avg_similarity': avg_similarity,
+        'avg_bertscore_f1': avg_bertscore_f1,
+        'avg_bertscore_precision': avg_bertscore_precision,
+        'avg_bertscore_recall': avg_bertscore_recall,
+        'bertscore_available': bertscore_results.get('available', False) if bertscore_results else False,
+        'classification_metrics': classification_metrics,
         'results': results
     }
 
@@ -1123,22 +1657,17 @@ def find_best_fold_model(base_dir: str = None) -> None:
     kf = KFold(n_splits=K_FOLDS, shuffle=True, random_state=42)
     
     # fold 모델 찾기 (현재 디렉토리에서 직접 찾기)
-    print(f"\n🔍 Fold 모델 검색 중... (20251109_08로 시작하는 모델만)")
+    print(f"\n🔍 Fold 모델 검색 중...")
     current_dir = Path(".")
     all_fold_folders = []
     
-    # 필터링할 날짜/시간 패턴
-    target_prefix = "20251109_08"
-    
     for folder in current_dir.iterdir():
         if folder.is_dir() and "_fold" in folder.name and "kogpt2" in folder.name.lower():
-            # 20251109_08로 시작하는 모델만 필터링
-            if target_prefix in folder.name:
-                # fold 번호 추출
-                match = re.search(r'_fold(\d+)_', folder.name)
-                if match:
-                    fold_num = int(match.group(1))
-                    all_fold_folders.append((fold_num, folder))
+            # fold 번호 추출
+            match = re.search(r'_fold(\d+)_', folder.name)
+            if match:
+                fold_num = int(match.group(1))
+                all_fold_folders.append((fold_num, folder))
     
     # fold 번호별로 그룹화하고 최신 것 선택
     fold_models = {}
@@ -1264,11 +1793,11 @@ def find_best_fold_model(base_dir: str = None) -> None:
     
     for result in sorted(valid_results, key=lambda x: x['fold']):
         print(f"Fold {result['fold']:<4} "
-              f"{result['success_rate']:>6.2%}   "
-              f"{result.get('avg_poetry_score', 0.0):>6.4f}   "
-              f"{result.get('avg_keyword_score', 0.0):>6.4f}   "
-              f"{result.get('avg_emotion_score', 0.0):>6.4f}   "
-              f"{result.get('composite_score', 0.0):>6.4f}")
+            f"{result['success_rate']:>6.2%}   "
+            f"{result.get('avg_poetry_score', 0.0):>6.4f}   "
+            f"{result.get('avg_keyword_score', 0.0):>6.4f}   "
+            f"{result.get('avg_emotion_score', 0.0):>6.4f}   "
+            f"{result.get('composite_score', 0.0):>6.4f}")
     
     # 최고 성능 모델 찾기
     print(f"\n{'='*80}")
@@ -1322,6 +1851,66 @@ def find_best_fold_model(base_dir: str = None) -> None:
     print(f"   shutil.make_archive(fold_folder, 'zip', base_dir, fold_folder)")
     print(f"   files.download(f\"{{fold_folder}}.zip\")")
     print(f"   ```")
+    
+    # 전체 fold에 대한 종합 classification metrics
+    print(f"\n{'='*80}")
+    print("📊 전체 Fold 종합 Classification Metrics")
+    print(f"{'='*80}")
+    
+    # 모든 fold의 결과를 합쳐서 전체 metrics 계산
+    all_results_combined = []
+    for result in valid_results:
+        if result.get('results'):
+            all_results_combined.extend(result['results'])
+    
+    if all_results_combined:
+        overall_metrics = calculate_classification_metrics(all_results_combined)
+        print_classification_metrics(overall_metrics)
+        
+        # 전체 confusion matrix 시각화
+        if MATPLOTLIB_AVAILABLE and overall_metrics:
+            output_dir = Path("evaluation_results_overall")
+            output_dir.mkdir(exist_ok=True)
+            
+            if 'emotion' in overall_metrics:
+                em = overall_metrics['emotion']
+                cm = np.array(em['confusion_matrix'])
+                plot_confusion_matrix(
+                    cm, em['labels'],
+                    "감정 분류 Confusion Matrix (전체 Fold)",
+                    save_path=str(output_dir / "emotion_cm_overall.png")
+                )
+            
+            if 'success' in overall_metrics:
+                sc = overall_metrics['success']
+                cm = np.array(sc['confusion_matrix'])
+                plot_confusion_matrix(
+                    cm, [str(l) for l in sc['labels']],
+                    "성공/실패 분류 Confusion Matrix (전체 Fold)",
+                    save_path=str(output_dir / "success_cm_overall.png")
+                )
+            
+            print(f"\n✅ 전체 Confusion Matrix 이미지가 저장되었습니다: {output_dir.absolute()}")
+    
+    # 각 fold별 classification metrics 요약
+    print(f"\n{'='*80}")
+    print("📊 Fold별 Classification Metrics 요약")
+    print(f"{'='*80}")
+    print(f"{'Fold':<6} {'Emotion Acc':<12} {'Poetry Quality':<12} {'Success Acc':<12}")
+    print(f"{'-'*80}")
+    
+    for result in sorted(valid_results, key=lambda x: x['fold']):
+        fold_idx = result['fold']
+        cm = result.get('classification_metrics', {})
+        
+        emotion_acc = cm.get('emotion', {}).get('accuracy', 0.0) if cm else 0.0
+        poetry_quality_mean = cm.get('poetry_quality_stats', {}).get('mean', 0.0) if cm else 0.0
+        success_acc = cm.get('success', {}).get('accuracy', 0.0) if cm else 0.0
+        
+        print(f"Fold {fold_idx:<4} "
+            f"{emotion_acc:>10.4f}   "
+            f"{poetry_quality_mean:>10.4f}   "
+            f"{success_acc:>10.4f}")
 
 
 if __name__ == "__main__":
