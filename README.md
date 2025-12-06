@@ -66,8 +66,7 @@
 **☘︎ 가벼운 시작**  
 긴 글을 쓸 필요가 없습니다. 오늘 점심에 무엇을 먹었는지, 날씨가 어땠는지 같은 작은 일상 몇 줄만 적어도 시가 생성됩니다. 일기처럼 생각나는 대로 적으면 되므로 부담이 적습니다.
 
-**☘︎ 내 목소리 그대로**  
-같은 내용이라도 SOLAR로 만들면 더 함축적인 느낌이 나고, koGPT2로 만들면 더 현대적인 느낌이 납니다. 누구에게 보여줄지, 어떤 톤으로 남길지에 따라 선택하면 됩니다.
+
 
 **☘︎ 기억 정리와 보관**  
 산문으로 흩어져 있던 감정들을 시로 압축해두면, 나중에 다시 읽어봤을 때 그때의 핵심만 남아있습니다. 표현도 다듬어지므로 더 깔끔하게 보관할 수 있습니다.
@@ -83,7 +82,7 @@
 - 일상글에서 핵심 키워드 추출 (TF-IDF)
 - 감정 분석 및 분위기 매핑 (XNLI 제로샷)
 - AI 기반 한국어 시 생성
-  - **SOLAR-10.7B-Instruct** (GPU 권장, 고품질)
+  - **SOLAR-10.7B-Instruct** (GPU 권장, 고품질, **Google Colab 필수**)
   - **koGPT2 파인튜닝 모델** (CPU 친화적, KPoEM 데이터셋 학습)
 - 비한국어 자동 번역 (Google Cloud Translation API)
 - 감정 추이 시각화
@@ -105,7 +104,7 @@
 
 ### 2. 입력 및 모델 선택
 
-오늘 하루 있었던 일을 간단히 적어봅니다. 입력이 비어있으면 버튼이 비활성화되어 입력 검증이 이루어집니다. SOLAR 모델은 GPU 환경에서 더 고품질의 시를 생성하는 모델이고, koGPT2는 CPU 환경에서 사용할 수 있는 모델입니다.
+오늘 하루 있었던 일을 간단히 적어봅니다. 입력이 비어있으면 버튼이 비활성화되어 입력 검증이 이루어집니다. **SOLAR 모델은 Google Colab GPU 환경에서 실행해야 하며**, ngrok을 통해 프론트엔드와 연결됩니다. koGPT2는 CPU 환경에서 로컬로 사용할 수 있는 모델입니다.
 
 ![입력 및 모델 선택](./images/siot_generator.png)
 
@@ -209,7 +208,9 @@ Settings 페이지에서는 기본 모델 선택, 자동 저장 기능, 데이�
 2. **키워드 추출** → TF-IDF로 핵심 키워드 추출  
 3. **감정 분석** → XNLI 기반 제로샷 감정 분류  
 4. **프롬프트 구성** → 키워드, 감정, 옵션을 조합해 프롬프트 생성  
-5. **시 생성** → SOLAR/koGPT2 모델로 생성   
+5. **시 생성** → SOLAR/koGPT2 모델로 생성
+   - **SOLAR 모델**: Google Colab GPU 환경에서 실행 (ngrok 터널링 필요)
+   - **koGPT2 모델**: 로컬 CPU 환경에서 실행 가능
 6. **번역** → 비한국어 시는 한국어로 자동 번역  
 7. **결과 반환** → 시/메타데이터를 프론트엔드로 전달
 
@@ -221,6 +222,56 @@ Settings 페이지에서는 기본 모델 선택, 자동 저장 기능, 데이�
 
 **SOLAR**: 한 줄에 여러 이미지를 압축해 넣는 편이며, 은유·상징을 자연스럽게 섞어 묵직한 고전 시 분위기를 만듭니다. 줄 수를 많이 지정하지 않아도 스스로 호흡을 조절하고, 감정 톤을 부드럽게 감싸는 경향이 있습니다.  
 **koGPT2**: 감정과 사건을 비교적 직접적으로 서술해 현대 자유시·일기체에 가깝고, 줄 수·분위기·필수 키워드 옵션에 따라 표현이 즉시 달라집니다. 구어체에 가까운 말투나 솔직한 감정 표현을 원하는 경우 더 자연스럽게 느껴집니다.
+
+### 시 생성 파이프라인 흐름도
+
+```mermaid
+flowchart LR
+    A[사용자 입력<br/>일상글] --> B[프론트엔드<br/>PoemGeneration.jsx]
+    B --> C{모델 선택}
+    C -->|SOLAR| D[ngrok URL<br/>검증]
+    C -->|koGPT2| E[로컬 API<br/>호출]
+    D --> F[API 요청<br/>/api/poem/generate]
+    E --> F
+    
+    F --> G[메타데이터<br/>추출]
+    G --> H[키워드 추출<br/>TF-IDF]
+    G --> I[감정 분석<br/>XNLI]
+    
+    H --> J[프롬프트 구성<br/>키워드 + 분위기]
+    I --> J
+    
+    J --> K{모델 타입}
+    K -->|SOLAR| L[SOLAR 모델<br/>Colab GPU]
+    K -->|koGPT2| M[koGPT2 모델<br/>로컬 CPU]
+    
+    L --> N[시 생성<br/>토크나이즈 + 추론]
+    M --> N
+    
+    N --> O[텍스트 후처리<br/>poem_text_processor.py]
+    O --> P[번역 처리<br/>translator.py]
+    P --> Q[응답 조립<br/>JSON 구성]
+    
+    Q --> R[프론트엔드<br/>결과 표시]
+    R --> S[localStorage<br/>자동 저장]
+    S --> T[EmotionTrend<br/>Archive 활용]
+    
+    style A fill:#e1f5ff
+    style B fill:#e1f5ff
+    style G fill:#fff4e1
+    style H fill:#fff4e1
+    style I fill:#fff4e1
+    style J fill:#fff4e1
+    style L fill:#fce4ec
+    style M fill:#e8f5e9
+    style N fill:#f3e5f5
+    style O fill:#e0f2f1
+    style P fill:#e0f2f1
+    style Q fill:#e0f2f1
+    style R fill:#e1f5ff
+    style S fill:#e1f5ff
+    style T fill:#e1f5ff
+```
 
 시옷은 다음과 같은 단계로 일상글을 시로 변환합니다:
 
@@ -334,30 +385,99 @@ Settings 페이지에서는 기본 모델 선택, 자동 저장 기능, 데이�
 
 `train_koGPT2.ipynb` 파일을 Google Colab에서 불러오고 실행하면 모델을 학습시킬 수 있습니다. 학습이 완료되면 모델을 다운로드하여 `backend/trained_models/` 폴더에 배치하면 자동으로 로드됩니다.
 
-### 학습 데이터셋
+## 학습 데이터셋
 
 **KPoEM (Korean Poem Dataset)**
 - **소스**: Hugging Face `AKS-DHLAB/KPoEM`
 - **형식**: TSV 파일 (`KPoEM_poem_dataset_v4.tsv`)
 - **내용**: 한국어 시 데이터셋으로, 시 원문 텍스트를 포함
 - **사용량**: 학습 시 최대 100개 샘플 사용 (전체 데이터셋 사용 가능, `MAX_DATA_SIZE` 파라미터로 조절)
+- **실제 사용 데이터**: 100개 샘플 (전체 데이터셋 615개 중 100개 선택)
 
 **사용자 데이터 활용**
 - Settings 페이지에서 생성된 시를 JSON 파일로 내보낼 수 있습니다
 - 이 JSON 파일에는 원본 일상글과 생성된 시가 쌍으로 저장되어 있어, 커스텀 학습 데이터셋으로 활용 가능합니다
 - 자신이 생성한 시 데이터를 모아서 `train_kogpt2_colab.py` 스크립트에 적용하면, 자신만의 스타일을 반영한 시 생성 모델을 만들 수 있습니다
 
-### 학습 설정 및 하이퍼파라미터
+## 학습 설정 및 하이퍼파라미터
 
 **기본 모델**: `skt/kogpt2-base-v2` (124M 파라미터)
 
 **학습 방법**: k-fold 교차 검증 (5-fold)
 
+**데이터 분할**:
+- 전체 데이터: 100개 샘플 (KPoEM 데이터셋)
+- 각 Fold별: Train 80개, Test 20개
+- 5-fold 교차 검증으로 모든 데이터가 한 번씩 테스트 세트로 사용됨
+
+**하이퍼파라미터**:
+- **Epochs**: 2
+- **Learning Rate**: 5e-05 (0.00005)
+- **Batch Size**: 4
+- **Gradient Accumulation Steps**: 4 (실제 배치 크기: 4 × 4 = 16)
+- **Optimizer**: AdamW
+- **FP16**: False (float32 사용, gradient scaling 문제 방지)
+- **GPU**: Tesla T4 (Google Colab)
+
 **학습 전략**:
 1. **시 원문 학습**: 시 텍스트만으로 학습하여 시의 형식, 구조, 표현 방식을 학습
 2. **산문 → 시 변환 학습**: 산문을 시로 변환하는 패턴을 학습하여 일상글을 시로 변환하는 능력 향상
 
-### 학습 과정
+## 학습 과정
+
+### 학습 파이프라인 흐름도
+
+```mermaid
+flowchart LR
+    A[KPoEM 데이터셋<br/>Hugging Face] --> B[데이터 준비<br/>다운로드 및 정규화]
+    B --> C[k-fold 분할<br/>5개 fold]
+    
+    C --> D[Fold 1<br/>학습]
+    C --> E[Fold 2<br/>학습]
+    C --> F[Fold 3<br/>학습]
+    C --> G[Fold 4<br/>학습]
+    C --> H[Fold 5<br/>학습]
+    
+    D --> I[토크나이저<br/>준비]
+    E --> I
+    F --> I
+    G --> I
+    H --> I
+    
+    I --> J[데이터셋<br/>전처리]
+    J --> K[Trainer API<br/>학습 실행]
+    K --> L[Validation<br/>평가]
+    L --> M[Checkpoint<br/>저장]
+    
+    M --> N[모든 Fold<br/>학습 완료]
+    N --> O[평가 및 선별<br/>evaluate_folds_colab.py]
+    O --> P[성능 평가<br/>시 품질, 키워드, 감정, BERTScore]
+    P --> Q[최적 Fold<br/>선정]
+    Q --> R[배포 준비<br/>trained_models/ 복사]
+    R --> S[자동 로드<br/>FastAPI 서버]
+    
+    style A fill:#e1f5ff
+    style B fill:#fff4e1
+    style C fill:#fff4e1
+    style D fill:#f3e5f5
+    style E fill:#f3e5f5
+    style F fill:#f3e5f5
+    style G fill:#f3e5f5
+    style H fill:#f3e5f5
+    style I fill:#e0f2f1
+    style J fill:#e0f2f1
+    style K fill:#e0f2f1
+    style L fill:#e0f2f1
+    style M fill:#e0f2f1
+    style N fill:#fce4ec
+    style O fill:#fce4ec
+    style P fill:#fce4ec
+    style Q fill:#fce4ec
+    style R fill:#e8f5e9
+    style S fill:#e8f5e9
+```
+
+**학습 과정 단계:**
 
 1. **데이터 준비** – KPoEM 데이터셋을 Hugging Face에서 다운로드하고 정규화
 2. **k-fold 분할** – 데이터를 5개 fold로 분할
@@ -365,7 +485,7 @@ Settings 페이지에서는 기본 모델 선택, 자동 저장 기능, 데이�
 4. **평가 및 선별** – 각 fold 모델의 성능을 평가하여 최적 fold 선정
 5. **배포 준비** – 선택된 fold 모델을 로컬 `backend/trained_models/`에 복사하여 자동 로드
 
-### 학습 결과
+## 학습 결과
 
 **학습 완료 모델**:
 - 각 fold마다 독립적인 모델이 생성되어 `fold_1`, `fold_2`, ..., `fold_5` 디렉터리에 저장
@@ -376,62 +496,118 @@ Settings 페이지에서는 기본 모델 선택, 자동 저장 기능, 데이�
 - 줄 수, 분위기, 필수 키워드 등 사용자 옵션에 더 민감하게 반응
 - CPU 환경에서도 시다운 표현을 유지하며 빠른 추론 가능
 
-**평가 지표**:
+## 평가 지표
 
 k-fold 교차 검증에서는 학습 중과 학습 후 두 단계로 성능을 평가합니다.
 
-- **학습 중 평가 (Validation)**: 각 fold 학습 시 validation 세트로 Perplexity(혼란도)와 토큰 손실을 계산합니다.
+### 학습 중 평가 (Validation)
 
-- **학습 후 평가 (`evaluate_folds_colab.py`)**: 각 fold 모델을 테스트 데이터로 평가합니다. 
-  - **시 품질 평가**: 형식 점수(줄 개수, 줄 길이), 한국어 점수, 산문 패턴 감지, 시적 표현 보너스, 길이 점수를 가중 평균하여 0.0(산문) ~ 1.0(시) 점수 계산
-  - **키워드 관련성 평가**: 추출된 키워드 중 생성된 시에 포함된 비율을 계산하여 0.0 ~ 1.0 점수 부여
-  - **감정 관련성 평가**: 원본 텍스트의 감정과 생성된 시의 감정 일치도 및 감정 단어 사용 빈도를 가중 평균하여 점수 계산
-  - **의미 유사도 평가 (BERTScore)**: BERT 모델을 사용하여 원본 시와 생성된 시 간의 의미적 유사도를 측정합니다. Precision, Recall, F1 점수를 계산하며, 각 점수는 0.0(완전히 다름) ~ 1.0(완전히 동일) 범위입니다. BERTScore는 단순 단어 일치가 아닌 의미적 유사도를 평가하므로, 생성된 시가 원본 시의 의미를 얼마나 잘 보존했는지 정량적으로 측정할 수 있습니다.
-  - **종합 성공률**: 필수 조건(30%)과 선택 조건(70%)을 가중 평균하여 종합 점수 계산, 0.6 이상이면 성공으로 판단
-  - **Classification Metrics (분류 평가 지표)**: 
-    - **감정 분류 Confusion Matrix**: 원본 텍스트의 감정(밝은/어두운/잔잔한)과 생성된 시의 감정을 비교하여 혼동 행렬 생성
-    - **성공/실패 분류 Confusion Matrix**: 성공/실패 예측 정확도 측정
-    - **BERTScore 분포 차트**: 원본 시와 생성된 시 간의 의미적 유사도(BERTScore F1) 점수 분포를 히스토그램으로 시각화
-    - **Precision, Recall, F1-Score**: 각 분류 작업에 대한 클래스별 정밀도, 재현율, F1 점수 계산
-    - **Classification Report**: sklearn 형식의 상세 분류 리포트 출력
-    - **시각화**: matplotlib/seaborn을 사용하여 confusion matrix와 BERTScore 분포를 히트맵/히스토그램 이미지로 저장
+각 fold 학습 시 validation 세트로 다음 지표를 계산합니다:
+- **Perplexity (혼란도)**: 모델이 다음 토큰을 예측하는 능력 측정
+- **토큰 손실 (Token Loss)**: 학습 과정에서의 손실 값
 
-    다음은 Fold 2 모델의 평가 결과입니다:
+### 학습 후 평가 (`evaluate_folds_colab.py`)
 
-    **Fold 2 모델 평가 결과:**
+각 fold 모델을 테스트 데이터로 평가하며, 다음 지표들을 사용합니다:
 
-    <div style="display: flex; gap: 20px; flex-wrap: wrap;">
-      <div style="flex: 1; min-width: 300px;">
-        <img src="./images/emotion_cm_fold_2.png" alt="감정 분류 Confusion Matrix (Fold 2)" style="width: 100%;">
-        <p style="text-align: center; margin-top: 10px;">감정 분류 Confusion Matrix: 원본 텍스트의 감정(밝은/어두운/잔잔한)과 생성된 시의 감정 일치도를 측정합니다.</p>
-      </div>
-      <div style="flex: 1; min-width: 300px;">
-        <img src="./images/success_cm_fold_2.png" alt="성공/실패 분류 Confusion Matrix (Fold 2)" style="width: 100%;">
-        <p style="text-align: center; margin-top: 10px;">성공/실패 분류 Confusion Matrix: 모델이 성공적으로 시를 생성했는지 여부를 평가합니다. True는 성공, False는 실패를 의미합니다.</p>
-      </div>
-      <div style="flex: 1; min-width: 300px;">
-        <img src="./images/bertscore_distribution_fold_2.png" alt="BERTScore 분포 (Fold 2)" style="width: 100%;">
-        <p style="text-align: center; margin-top: 10px;">BERTScore F1 분포: 원본 시와 생성된 시 간의 의미적 유사도(BERTScore F1) 점수 분포를 히스토그램으로 시각화합니다. 높은 점수일수록 원본 시와 의미적으로 유사합니다.</p>
-      </div>
-    </div>
+| 평가 항목 | 설명 | 점수 범위 |
+|-----------|------|-----------|
+| **시 품질 평가** | 형식 점수(줄 개수, 줄 길이), 한국어 점수, 산문 패턴 감지, 시적 표현 보너스, 길이 점수를 가중 평균 | 0.0 (산문) ~ 1.0 (시) |
+| **키워드 관련성 평가** | 추출된 키워드 중 생성된 시에 포함된 비율 | 0.0 ~ 1.0 |
+| **감정 관련성 평가** | 원본 텍스트의 감정과 생성된 시의 감정 일치도 및 감정 단어 사용 빈도 | 0.0 ~ 1.0 |
+| **의미 유사도 평가 (BERTScore)** | BERT 모델을 사용한 원본 시와 생성된 시 간의 의미적 유사도 (Precision, Recall, F1) | 0.0 (완전히 다름) ~ 1.0 (완전히 동일) |
+| **종합 성공률** | 필수 조건(30%)과 선택 조건(70%)을 가중 평균한 종합 점수 | 0.6 이상이면 성공 |
 
-    **BERTScore 평가 설명:**
+#### BERTScore 상세 설명
 
-    BERTScore는 BERT 모델의 임베딩을 사용하여 두 텍스트 간의 의미적 유사도를 측정하는 평가 지표입니다. 단순히 단어가 일치하는지가 아니라, 문맥과 의미를 고려하여 평가합니다.
+**BERTScore란?**
 
-    - **BERTScore F1**: Precision과 Recall의 조화평균으로, 전체적인 의미 유사도를 나타냅니다 (0.0 ~ 1.0)
-    - **BERTScore Precision**: 생성된 시의 단어들이 원본 시의 의미를 얼마나 잘 반영했는지 측정
-    - **BERTScore Recall**: 원본 시의 의미가 생성된 시에 얼마나 잘 포함되었는지 측정
-    - **평균/표준편차/최소/최대**: 모든 샘플에 대한 BERTScore F1 점수의 통계적 분포를 분석하여 모델의 일관성을 평가
+BERTScore는 BERT 모델의 임베딩을 활용하여 두 텍스트 간의 **의미적 유사도**를 측정하는 평가 지표입니다. 기존의 단어 기반 평가 방법(BLEU, ROUGE 등)과 달리, 단순한 단어 일치가 아닌 **문맥과 의미를 고려**하여 평가합니다.
 
-    BERTScore가 높을수록 생성된 시가 원본 시의 의미를 더 잘 보존했다고 평가할 수 있습니다.
-  - **시 품질 통계**: 
-    - **평균/중앙값/표준편차**: 시 품질 점수의 통계적 분포 분석
-    - **최소값/최대값**: 시 품질 점수의 범위 확인
-    - **시 형태 분포**: 시로 판정된 비율, 산문/일기/설명문으로 판정된 개수 및 비율
+**작동 원리:**
+1. BERT 모델을 사용하여 원본 시와 생성된 시의 각 단어를 임베딩 벡터로 변환
+2. 코사인 유사도를 계산하여 각 단어 간의 의미적 유사도 측정
+3. Precision, Recall, F1 점수를 계산하여 종합적인 의미 유사도 평가
+
+**평가 지표:**
+- **BERTScore Precision**: 생성된 시의 단어들이 원본 시의 의미를 얼마나 잘 반영했는지 측정 (생성된 시 관점)
+- **BERTScore Recall**: 원본 시의 의미가 생성된 시에 얼마나 잘 포함되었는지 측정 (원본 시 관점)
+- **BERTScore F1**: Precision과 Recall의 조화평균으로, 전체적인 의미 유사도를 나타냄 (0.0 ~ 1.0)
+
+**BERTScore를 선택한 이유:**
+
+시 생성의 특성상, 모델이 원본 시와 완전히 동일한 단어를 사용하지 않더라도 **의미를 보존**했다면 좋은 시로 평가되어야 합니다. BERTScore는 BERT 모델의 문맥 이해 능력을 활용하여 단어가 다르더라도 의미가 유사하면 높은 점수를 부여하므로, 시 생성 모델의 품질을 더 정확하게 평가할 수 있습니다.
+
+**Classification Metrics (분류 평가 지표)**
+
+| 지표 | 설명 |
+|------|------|
+| **감정 분류 Confusion Matrix** | 원본 텍스트의 감정(밝은/어두운/잔잔한)과 생성된 시의 감정을 비교하여 혼동 행렬 생성 |
+| **성공/실패 분류 Confusion Matrix** | 성공/실패 예측 정확도 측정 |
+| **BERTScore 분포 차트** | 의미적 유사도(BERTScore F1) 점수 분포를 히스토그램으로 시각화 |
+| **Precision, Recall, F1-Score** | 각 분류 작업에 대한 클래스별 정밀도, 재현율, F1 점수 |
+| **Classification Report** | sklearn 형식의 상세 분류 리포트 |
+| **시각화** | matplotlib/seaborn을 사용한 confusion matrix와 BERTScore 분포 히트맵/히스토그램 |
 
 **최적 모델 선정**:
 - 각 fold의 성공률, 평균 시 품질 점수, 평균 키워드 점수, 평균 감정 점수를 종합하여 가장 높은 성능을 보인 fold를 최적 모델로 선정
+
+### 실제 평가 결과 (5-fold 교차 검증)
+
+**각 Fold별 평가 결과:**
+
+| Fold | 성공률 | 시 품질 | 키워드 점수 | 감정 점수 | 종합 점수 | BERTScore F1 |
+|------|--------|---------|-------------|-----------|-----------|--------------|
+| Fold 1 | 100.00% | 0.3282 | 0.2225 | 0.6875 | 0.4043 | 0.6678 |
+| Fold 2 | 90.00% | 0.3184 | 0.2300 | 0.7235 | 0.4134 | 0.6953 |
+| Fold 3 | 100.00% | 0.3524 | 0.3117 | 0.5505 | 0.3996 | 0.6844 |
+| Fold 4 | 100.00% | 0.3372 | 0.3275 | 0.5720 | 0.4047 | 0.6753 |
+| Fold 5 | 95.00% | 0.3438 | 0.2275 | 0.5350 | 0.3663 | 0.6707 |
+
+**전체 평균 BERTScore 통계:**
+- 평균 BERTScore F1: 0.6787 (0.0=다름, 1.0=동일)
+- 평균 Precision: 0.6525
+- 평균 Recall: 0.7079
+- 표준편차 F1: 0.0331
+- 최소값 F1: 0.5720
+- 최대값 F1: 0.7600
+
+**BERTScore 점수가 상대적으로 낮은 이유:**
+
+평균 BERTScore F1이 약 0.68 수준인 것은 시 생성의 특성상 자연스러운 현상입니다. 시 생성 모델은 원본 시를 그대로 복사하는 것이 아니라 새로운 표현으로 재창조하는 것이 목표이기 때문에, 완전히 동일한 단어를 사용하지 않더라도 의미를 보존했다면 좋은 시로 평가될 수 있습니다. 또한 실제 사용 시나리오에서는 일상글을 시로 변환하는 것이 목표이므로, 원본 시와의 유사도가 낮더라도 일상글의 의미를 잘 담아낸 시라면 충분히 의미 있는 결과입니다.
+
+**최적 모델 선정 결과:**
+
+| 기준 | 최고 Fold | 주요 지표 |
+|------|-----------|-----------|
+|  **종합 성능** | Fold 2 | 종합 점수: 0.4134, 감정 점수: 0.7235 (최고), 성공률: 90.00% |
+|  **시 형태** | Fold 3 | 시 품질: 0.3524 (최고), 성공률: 100.00%, 한국어 점수: 0.8786 |
+|  **키워드 반영** | Fold 4 | 키워드 점수: 0.3275 (최고), 반영률: 29.50%, 성공률: 100.00% |
+|  **감정 반영** | Fold 2 | 감정 점수: 0.7235 (최고), 일치도: 0.6550, 성공률: 90.00% |
+
+**평가 결과 요약:**
+- 전체 평균 성공률: 97.00% (97/100 샘플 성공)
+- 전체 평균 시 품질 점수: 0.3360
+- 전체 평균 키워드 반영률: 26.20%
+- 전체 평균 감정 일치도: 0.5310
+- 전체 평균 BERTScore F1: 0.6787 (의미적 유사도가 약 68% 수준)
+
+**Fold 2 모델 평가 결과 시각화:**
+
+<div style="display: flex; gap: 20px; flex-wrap: wrap;">
+  <div style="flex: 1; min-width: 300px;">
+    <img src="./images/emotion_cm_fold_2.png" alt="감정 분류 Confusion Matrix (Fold 2)" style="width: 100%;">
+    <p style="text-align: center; margin-top: 10px;">감정 분류 Confusion Matrix: 원본 텍스트의 감정(밝은/어두운/잔잔한)과 생성된 시의 감정 일치도를 측정합니다.</p>
+  </div>
+  <div style="flex: 1; min-width: 300px;">
+    <img src="./images/success_cm_fold_2.png" alt="성공/실패 분류 Confusion Matrix (Fold 2)" style="width: 100%;">
+    <p style="text-align: center; margin-top: 10px;">성공/실패 분류 Confusion Matrix: 모델이 성공적으로 시를 생성했는지 여부를 평가합니다. True는 성공, False는 실패를 의미합니다.</p>
+  </div>
+  <div style="flex: 1; min-width: 300px;">
+    <img src="./images/bertscore_distribution_fold_2.png" alt="BERTScore 분포 (Fold 2)" style="width: 100%;">
+    <p style="text-align: center; margin-top: 10px;">BERTScore F1 분포: 원본 시와 생성된 시 간의 의미적 유사도(BERTScore F1) 점수 분포를 히스토그램으로 시각화합니다. 높은 점수일수록 원본 시와 의미적으로 유사합니다.</p>
+  </div>
+</div>
 
 
 
@@ -440,10 +616,11 @@ k-fold 교차 검증에서는 학습 중과 학습 후 두 단계로 성능을 �
 | 항목 | SOLAR-10.7B-Instruct | koGPT2-base-v2 (KPoEM 파인튜닝) |
 |------|----------------------|--------------------------------|
 | **모델 유형** | 10.7B Instruct (Upstage) | 124M 한국어 GPT2 |
-| **필수 환경** | CUDA GPU | CPU |
+| **필수 환경** | **Google Colab GPU (필수)** | CPU (로컬 실행 가능) |
+| **설정 방법** | Colab 노트북 실행 + ngrok 터널링 | 로컬 서버 실행 |
 | **표현 스타일** | 함축적, 상징적, 고전 시 느낌 | 일상 언어, 직접적 감정 묘사 |
 | **장점** | 고품질, 긴 문맥, 옵션 없이도 안정적 | 가벼움, 빠른 추론, 옵션 제어 용이 |
-| **단점** | 21GB 로딩, GPU 의존 | 표현 다양성 제한, 긴 문맥 취약 |
+| **단점** | 21GB 로딩, GPU 의존, Colab 설정 필요 | 표현 다양성 제한, 긴 문맥 취약 |
 
 프론트엔드 `PoemGeneration`은 사용자가 모델을 명시적으로 선택할 수 있고, SOLAR는 ngrok URL 검증을 통과해야 요청을 보냅니다.
 
@@ -586,10 +763,11 @@ graph TB
 프론트엔드 (localhost:5173) → 백엔드 (localhost:8000) → 로컬 모델/API
 ```
 
-**Colab GPU 환경**:
+**Colab GPU 환경 (SOLAR 모델 필수)**:
 ```
-프론트엔드 (localhost:5173) → ngrok 터널 → Colab 백엔드 (포트 8000) → GPU 모델
+프론트엔드 (localhost:5173) → ngrok 터널 → Colab 백엔드 (포트 8000) → SOLAR GPU 모델
 ```
+> ⚠️ **SOLAR 모델 사용 시**: Google Colab에서 `GPU_backend.ipynb` 실행 후 ngrok 터널링이 필수입니다. 로컬 환경에서는 SOLAR 실행이 어렵습니다.
 
 ## ☆ 기술 스택
 
@@ -665,8 +843,10 @@ graph TB
 
 시스템이 자동으로 GPU/CPU를 감지하여 적절한 모델을 선택합니다.
 
-- **GPU 감지 시**: SOLAR 모델 자동 선택 (고품질, 10.7B 파라미터)
+- **로컬 GPU 감지 시**: SOLAR 모델 자동 선택 (고품질, 10.7B 파라미터) - **단, SOLAR는 주로 Google Colab에서 실행 권장**
 - **CPU만 사용 가능 시**: koGPT2 모델 자동 선택 (CPU 친화적, 124M 파라미터)
+
+> ⚠️ **주의**: SOLAR 모델은 10.7B 파라미터로 매우 크며, 로컬 GPU 환경에서도 실행이 어려울 수 있습니다. **Google Colab에서 `GPU_backend.ipynb`를 실행하는 것을 강력히 권장합니다.**
 
 ### 수동으로 모델 지정하기
 
@@ -698,7 +878,7 @@ touch .env
 ## ☆ 사용 모델 상세
 
 - **SOLAR-10.7B-Instruct**  
-   긴 문맥을 잃지 않고 함축적인 시어를 만드는 능력이 뛰어나며, Colab GPU에서 bitsandbytes 4bit NF4 양자화를 적용해 VRAM 사용량을 최소화합니다. 시옷은 instruct 프롬프트와 세밀한 샘플링 파라미터를 함께 사용해 줄 수·분위기·필수 키워드를 자연스럽게 반영합니다.
+   긴 문맥을 잃지 않고 함축적인 시어를 만드는 능력이 뛰어나며, **Google Colab GPU 환경에서 실행해야 합니다.** Colab GPU에서 bitsandbytes 4bit NF4 양자화를 적용해 VRAM 사용량을 최소화합니다. 시옷은 instruct 프롬프트와 세밀한 샘플링 파라미터를 함께 사용해 줄 수·분위기·필수 키워드를 자연스럽게 반영합니다. 로컬 환경에서는 실행이 어려우므로, `GPU_backend.ipynb` 노트북을 Colab에서 실행하고 ngrok을 통해 프론트엔드와 연결해야 합니다.
 
 - **koGPT2-base-v2 (파인튜닝)**  
   SKT koGPT2를 KPoEM 데이터셋으로 k-fold fine-tuning 해 CPU에서도 시다운 표현을 유지하게 만들었습니다. Temperature 0.65, Top-p 0.85, 반복 패널티 1.6 등 시 특화 하이퍼파라미터를 적용했고, `trained_models/`에 fold별 체크포인트를 보관해 로컬 FastAPI가 즉시 불러옵니다. 
@@ -729,8 +909,8 @@ touch .env
 - **GPU 환경**: SOLAR
 
 ### 권장사항
-- GPU가 있으면 SOLAR 사용 권장  
-- CPU만 가능하면 파인튜닝 koGPT2 사용  
+- **SOLAR 사용 시**: Google Colab에서 `GPU_backend.ipynb` 실행 필수, ngrok 터널링 필요
+- **로컬 개발 시**: CPU만 가능하면 파인튜닝 koGPT2 사용 권장
 - 프론트엔드에서 "koGPT2 (CPU)" 버튼을 누르면 학습 모델 자동 사용
 
 ###  koGPT2 파인튜닝 완료
@@ -790,9 +970,33 @@ npm install   # 최초 1회
 npm run dev   # http://localhost:5173
 ```
 
-## Google Colab에서 실행
+## Google Colab에서 SOLAR 모델 실행 (필수)
 
-`GPU_backend.ipynb` 파일을 Google Colab에서 불러오고 실행하면 됩니다.
+**SOLAR 모델을 사용하려면 반드시 Google Colab에서 백엔드를 실행해야 합니다.** SOLAR는 10.7B 파라미터의 대규모 모델로 GPU가 필수이며, 로컬 환경에서는 실행이 어렵습니다.
+
+### SOLAR 모델 설정 단계
+
+1. **Google Colab 노트북 열기**
+   - `GPU_backend.ipynb` 파일을 Google Colab에서 불러옵니다
+   - 또는 [Colab에서 직접 열기](https://colab.research.google.com/github/jinbaaaaaang/oss-siot/blob/main/GPU_backend.ipynb)
+
+2. **GPU 런타임 활성화**
+   - Colab 메뉴: `런타임` → `런타임 유형 변경` → `GPU (T4)` 선택
+
+3. **ngrok 설정**
+   - [ngrok.com](https://ngrok.com)에서 무료 계정 생성 및 토큰 발급
+   - Colab 노트북에서 ngrok 토큰 설정
+   - ngrok을 통해 공개 URL 생성 (예: `https://xxxx-xxxx.ngrok-free.dev`)
+
+4. **프론트엔드 연결**
+   - 생성된 ngrok URL을 `frontend/.env` 파일의 `VITE_COLAB_API_URL`에 설정
+   - 프론트엔드 서버 재시작 (`npm run dev`)
+
+5. **서버 실행 확인**
+   - Colab에서 백엔드 서버가 정상 실행되었는지 확인
+   - 프론트엔드에서 SOLAR 모델 선택 시 ngrok URL 검증 통과 여부 확인
+
+> 💡 **참고**: Colab 세션이 종료되면 ngrok URL이 변경되므로, 프론트엔드 `.env` 파일을 다시 업데이트해야 합니다. 자세한 설정 방법은 [`docs/API.md`](docs/API.md)의 "Colab + ngrok 연동 체크리스트" 섹션을 참고하세요.
 
 ## ☆ API 문서
 
@@ -854,8 +1058,5 @@ Google Cloud Translation API와 Gemini API는 Google의 API 서비스를 사용�
 - [Google Gemini API](https://ai.google.dev/) - AI 서비스
 
 ---
-
-
-
 
 **프로젝트 기간**: 2025.10.26 ~ 2025.12.05
