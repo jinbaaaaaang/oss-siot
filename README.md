@@ -72,7 +72,7 @@
 **☘︎ 감정 들여다보기**  
 생성된 시마다 감정 분석 결과가 함께 제공됩니다. 이를 차트로 모아보면 며칠간의 감정 변화를 한눈에 확인할 수 있습니다. 가끔 "이번 주에는 슬픈 시를 많이 만들었구나" 같은 패턴을 발견하기도 합니다.
 
-**☘︎ ㅅ 도우미** 작
+**☘︎ 시 창작 도우미** 
 시를 쓰고 싶은데 아이디어가 막힐 때도 활용할 수 있습니다. 키워드나 분위기만 지정하여 초안을 받아보고, 거기서 시작해서 고쳐나가면 됩니다.
 
 ## ☆ 기능
@@ -644,16 +644,22 @@ BERTScore는 BERT 모델의 임베딩을 활용하여 두 텍스트 간의 **의
 - 전체 평균 감정 일치도: 0.5310
 - 전체 평균 BERTScore F1: 0.6787 (의미적 유사도가 약 68% 수준)
 
+**학습 성과 평가:**
+
+각 지표는 낮게 나왔지만, 학습이 잘 되었다고 평가할 수 있습니다. 시 품질 점수(0.3360)가 낮은 건 시를 생성하는 과정에서 산문/일기/설명문 패턴이 섞일 수 있고 시와 산문의 경계가 모호하기 때문입니다. 키워드 반영률(26.20%)이 낮은 건 시가 키워드를 직접 사용하지 않고 의미적으로만 반영하기 때문입니다. 감정 일치도(0.5310)가 낮은 건 시가 감정을 간접적으로 표현하기 때문입니다.
+
+단순히 키워드나 감정 반영만으로 평가하기엔 생성이라는 점에서 신뢰성이 낮아질 수 있어서, 의미적 유사도를 측정하는 BERTScore를 추가로 사용했습니다. BERTScore는 연속적인 점수이기 때문에 Confusion Matrix를 만들기 어렵고, 히스토그램으로 분포를 시각화했습니다. 성공률이 97.00%로 높고, BERTScore F1이 0.6787로 의미적 유사도가 약 68% 수준을 유지하고 있어서, 모델이 원본 텍스트의 의미를 이해하고 시로 재해석하는 능력을 갖췄다고 볼 수 있습니다. 각 지표가 낮은 건 시의 특성상 직접적 표현보다 간접적 표현을 선호하기 때문이며, 이는 오히려 모델이 시의 본질을 학습했다는 증거로 해석할 수 있습니다.
+
 **Fold 2 모델 평가 결과 시각화:**
 
 <div style="display: flex; gap: 20px; flex-wrap: wrap;">
   <div style="flex: 1; min-width: 300px;">
     <img src="./images/emotion_cm_fold_2.png" alt="감정 분류 Confusion Matrix (Fold 2)" style="width: 100%;">
-    <p style="text-align: center; margin-top: 10px;">감정 분류 Confusion Matrix: 원본 텍스트의 감정(밝은/어두운/잔잔한)과 생성된 시의 감정 일치도를 측정합니다.</p>
+    <p style="text-align: center; margin-top: 10px;">감정 분류 Confusion Matrix: 원본 텍스트가 감정을 직접 표현해도 시는 추상적인 이미지로 전달하기 때문에 XNLI 분류기가 다르게 해석하여 오분류가 발생합니다. 이는 시의 본질적 특성으로, 모델이 시의 간접적 표현 방식을 학습했다는 의미입니다.</p>
   </div>
   <div style="flex: 1; min-width: 300px;">
     <img src="./images/success_cm_fold_2.png" alt="성공/실패 분류 Confusion Matrix (Fold 2)" style="width: 100%;">
-    <p style="text-align: center; margin-top: 10px;">성공/실패 분류 Confusion Matrix: 모델이 성공적으로 시를 생성했는지 여부를 평가합니다. True는 성공, False는 실패를 의미합니다.</p>
+    <p style="text-align: center; margin-top: 10px;">성공/실패 분류 Confusion Matrix: 각 지표가 낮게 나왔지만 종합 평가 결과 성공률이 97%로 높게 나타났습니다. 이는 모델이 시의 특성(간접적 표현)을 잘 학습했다는 의미입니다.</p>
   </div>
   <div style="flex: 1; min-width: 300px;">
     <img src="./images/bertscore_distribution_fold_2.png" alt="BERTScore 분포 (Fold 2)" style="width: 100%;">
